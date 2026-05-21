@@ -56,11 +56,14 @@ async def generate_reply(
     messages.extend(history)
     messages.append({"role": "user", "content": wrapped})
     log.debug("openrouter request: model=%s msgs=%d", settings.openrouter_model, len(messages))
-    # Disable reasoning on the reply model. `enabled=false` covers Anthropic 4.6+
-    # (which ignores `effort`); `exclude=true` hides any reasoning tokens from
-    # the returned content for every other provider. Keeps replies fast + cheap
-    # and stops scratchpad/thinking leakage from corrupting the text the contact sees.
-    extra_body = {"reasoning": {"enabled": False, "exclude": True}}
+    # Some providers (e.g. Gemini 3.5 Flash) reject reasoning.enabled=false with
+    # "Reasoning is mandatory for this endpoint." Use the lowest non-disabled
+    # setting instead: effort=minimal + exclude=true.
+    # - effort=minimal: providers that allow it (Gemini, OpenAI o-series) think briefly.
+    # - exclude=true: hides any reasoning tokens from the returned content so the
+    #   contact never sees scratchpad/thinking leakage.
+    # - Claude 4.6+ ignores `effort` (adaptive thinking) but honours `exclude`.
+    extra_body = {"reasoning": {"effort": "minimal", "exclude": True}}
 
     resp = await client.chat.completions.create(
         model=settings.openrouter_model,
