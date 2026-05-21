@@ -622,6 +622,8 @@ Memory:
  /forget <memory_id> — soft-delete
  /extract <chat_id> — force extraction now
  /style <chat_id> — show style fingerprint JSON
+ /memory_cleanup <chat_id> | all — retroactively dedupe memory rows
+ /memory_purge <chat_id> | all — wipe all memory rows + reset extraction (rebuilds clean)
 
 Modes:
  /approval on|off — HITL gate
@@ -962,6 +964,89 @@ async def on_style(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"style fingerprint for {chat_id}:\n{sf}")
 
 
+async def on_memory_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Wipe all memory rows for a chat (or all chats). Keeps messages + overrides.
+    Useful when an old over-eager extractor left a garbage pile — new extractor
+    will rebuild from scratch on next conversation."""
+    if not _is_owner(update):
+        return
+    args = ctx.args or []
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await _reply(update, "no active connection")
+        return
+    conn = db._db()
+    if not args or args[0] == "all":
+        cur = await conn.execute(
+            "SELECT COUNT(*) AS n FROM contact_memory WHERE conn_id = ?",
+            (conn_id,),
+        )
+        row = await cur.fetchone()
+        n = int(row["n"]) if row else 0
+        await conn.execute("DELETE FROM contact_memory WHERE conn_id = ?", (conn_id,))
+        # Also reset extracted_at so the new extractor re-reads the whole history.
+        await conn.execute(
+            "UPDATE messages SET extracted_at = NULL WHERE conn_id = ?",
+            (conn_id,),
+        )
+        await conn.commit()
+        await _reply(update, f"💣 purged {n} memory rows across all chats. extraction will rebuild.")
+        return
+    chat_id = _parse_int(args[0])
+    if chat_id is None:
+        await _reply(update, "usage: /memory_purge <chat_id> | all")
+        return
+    cur = await conn.execute(
+        "SELECT COUNT(*) AS n FROM contact_memory WHERE conn_id = ? AND chat_id = ?",
+        (conn_id, chat_id),
+    )
+    row = await cur.fetchone()
+    n = int(row["n"]) if row else 0
+    await conn.execute(
+        "DELETE FROM contact_memory WHERE conn_id = ? AND chat_id = ?",
+        (conn_id, chat_id),
+    )
+    await conn.execute(
+        "UPDATE messages SET extracted_at = NULL WHERE conn_id = ? AND chat_id = ?",
+        (conn_id, chat_id),
+    )
+    await conn.commit()
+    await _reply(update, f"💣 purged {n} memory rows for chat {chat_id}. extraction will rebuild.")
+
+
+async def on_memory_cleanup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Retroactively dedupe contact_memory rows for one chat (or all)."""
+    if not _is_owner(update):
+        return
+    args = ctx.args or []
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await _reply(update, "no active connection")
+        return
+    if not args or args[0] == "all":
+        # Loop every chat that has any memory rows.
+        conn = db._db()
+        cur = await conn.execute(
+            "SELECT DISTINCT chat_id FROM contact_memory WHERE conn_id = ?",
+            (conn_id,),
+        )
+        chat_ids = [r["chat_id"] for r in await cur.fetchall()]
+        if not chat_ids:
+            await _reply(update, "no memory rows to dedupe")
+            return
+        total = 0
+        for cid in chat_ids:
+            total += await db.dedupe_chat_memory(conn_id=conn_id, chat_id=cid)
+        await _reply(update, f"🧹 deduped {total} rows across {len(chat_ids)} chats")
+        return
+    chat_id = _parse_int(args[0])
+    if chat_id is None:
+        await _reply(update, "usage: /memory_cleanup <chat_id> | all")
+        return
+    n = await db.dedupe_chat_memory(conn_id=conn_id, chat_id=chat_id)
+    await _reply(update, f"🧹 deduped {n} memory rows for chat {chat_id}")
+
+
 async def on_forget_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update):
         return
@@ -1044,6 +1129,8 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("extract", on_extract))
     app.add_handler(CommandHandler("style", on_style))
     app.add_handler(CommandHandler("forget_chat", on_forget_chat))
+    app.add_handler(CommandHandler("memory_cleanup", on_memory_cleanup))
+    app.add_handler(CommandHandler("memory_purge", on_memory_purge))
     app.add_handler(CommandHandler("backup", on_backup))
 
     app.add_handler(MessageHandler(filters.Regex(r"^/approve_\d+$"), on_approve))

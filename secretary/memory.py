@@ -21,19 +21,24 @@ _extractor = AsyncOpenAI(
     },
 )
 
-EXTRACTION_SYSTEM = """You extract durable facts about a person from a conversation.
-Return STRICT JSON with this shape, no prose, no markdown fences:
+EXTRACTION_SYSTEM = """You extract DURABLE, NOTEWORTHY facts about the CONTACT (not the owner) from a recent slice of conversation.
+
+Return STRICT JSON, no prose, no markdown fences:
 {"memories": [{"kind": "fact|promise|event|preference|inside_joke|open_thread", "content": "<one short sentence>", "expires_at": null | <unix_ts>}]}
 
-Rules:
-- "fact" = permanent (birthday, job, family, location, pets).
-- "promise" = owner-side or contact-side commitment that can be fulfilled.
-- "event" = time-bounded (interview Tuesday, trip next month) — set expires_at to event date + 7 days.
-- "preference" = how they like to communicate (language, length, emoji).
-- "inside_joke" = recurring callback or shared reference.
-- "open_thread" = topic raised but not closed.
-- Ignore noise. Be conservative. Skip if uncertain.
-- Maximum 10 memories per call.
+Hard rules (violation = unusable output):
+1. Subject must be the CONTACT (the human messaging the owner), never "the user" / "the assistant" / "the bot". Use the contact's real name if visible; otherwise write "She" / "He" / "They".
+2. SKIP if the slice contains nothing new and durable. An empty {"memories": []} is GOOD output — do not fabricate.
+3. Re-read the "Existing memory" block. If a candidate memory is already there (even paraphrased), DO NOT emit it again. Dedup aggressively.
+4. Do NOT extract: greetings, individual emoji, single-word reactions, swearing, sexual talk, casual jokes, moods of the moment, sentences fragments. Only durable signal.
+5. "fact" = permanent reality (job, family, city, pet, birthday).
+6. "preference" = stable communication preference (language, message length, emoji policy). Not one-off requests.
+7. "promise" = a real commitment with a fulfilment criterion.
+8. "event" = a real scheduled occurrence (interview Tuesday, trip next month). expires_at = unix timestamp of event + 7 days.
+9. "inside_joke" = a recurring callback that appears MULTIPLE times across the slice.
+10. "open_thread" = a real unresolved topic the contact cares about. Not "the user uses crude language" — that's noise.
+11. Be conservative. When in doubt, return fewer items.
+12. Maximum 5 memories per call. Quality over quantity. Returning 0 is fine.
 """
 
 STYLE_SYSTEM = """Analyze how the OWNER writes to this contact. Return STRICT JSON:
@@ -61,21 +66,36 @@ async def enqueue_if_due(conn_id: str, chat_id: int) -> None:
     await db.enqueue(conn_id=conn_id, chat_id=chat_id)
 
 
+MIN_NEW_MESSAGES_FOR_EXTRACTION = 10
+
+
 async def _extract_for_chat(conn_id: str, chat_id: int) -> None:
-    """Pull recent un-extracted messages + existing memory, ask LLM, upsert."""
-    messages_window = await db.load_history(
+    """Extract durable memories from messages not yet processed.
+    Skips if fewer than MIN_NEW_MESSAGES_FOR_EXTRACTION new messages.
+    Dedups against existing memory before inserting.
+    Marks processed messages with extracted_at=now so they aren't reprocessed.
+    """
+    new_rows = await db.list_unextracted_messages(
         conn_id=conn_id, chat_id=chat_id, limit=300
     )
-    if not messages_window:
+    if len(new_rows) < MIN_NEW_MESSAGES_FOR_EXTRACTION:
+        log.debug(
+            "extract skipped chat=%s: only %d unextracted messages (need %d)",
+            chat_id, len(new_rows), MIN_NEW_MESSAGES_FOR_EXTRACTION,
+        )
         return
+
     existing = await db.list_memory(conn_id=conn_id, chat_id=chat_id)
     existing_text = "\n".join(f"- [{m['kind']}] {m['content']}" for m in existing[:300])
-    convo = "\n".join(f"{m['role']}: {m['content']}" for m in messages_window)
+    convo = "\n".join(f"{m['role']}: {m['content']}" for m in new_rows)
     prompt = (
-        f"Existing memory:\n{existing_text or '(none)'}\n\n"
-        f"Recent conversation:\n{convo}\n\n"
-        "Extract NEW or UPDATED memories only. Skip facts already captured above."
+        f"Existing memory (do NOT re-emit any of these, even paraphrased):\n"
+        f"{existing_text or '(none)'}\n\n"
+        f"NEW conversation slice (only this window — older context already captured above):\n"
+        f"{convo}\n\n"
+        "Return JSON. Empty memories array is the correct answer if nothing durable + new is here."
     )
+
     try:
         resp = await _extractor.chat.completions.create(
             model=settings.extractor_model,
@@ -84,24 +104,41 @@ async def _extract_for_chat(conn_id: str, chat_id: int) -> None:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=4000,
+            max_tokens=2000,
             response_format={"type": "json_object"},
         )
         raw = (resp.choices[0].message.content or "").strip()
         parsed = json.loads(raw)
-        for m in parsed.get("memories", [])[:50]:
+        added = 0
+        for m in parsed.get("memories", [])[:5]:
             kind = m.get("kind")
             content = m.get("content")
             expires = m.get("expires_at")
             if not kind or not content:
+                continue
+            # Insert-side dedup: skip if a near-duplicate memory already exists.
+            if await db.memory_duplicate_exists(
+                conn_id=conn_id, chat_id=chat_id, kind=kind, content=content
+            ):
+                log.debug("memory dedup: skipped %s/%r", kind, content[:60])
                 continue
             await db.add_memory(
                 conn_id=conn_id, chat_id=chat_id,
                 kind=kind, content=content,
                 expires_at=expires if isinstance(expires, int) else None,
             )
+            added += 1
+        log.info(
+            "extract chat=%s processed=%d added=%d skipped_dup=%d",
+            chat_id, len(new_rows), added,
+            len(parsed.get("memories", [])) - added,
+        )
     except Exception:
         log.exception("memory extraction failed for chat %s", chat_id)
+        return  # don't mark messages extracted if we failed — try again next round
+
+    # Mark these messages as processed so they don't re-feed the extractor.
+    await db.mark_messages_extracted([r["id"] for r in new_rows])
 
 
 async def extract_worker() -> None:

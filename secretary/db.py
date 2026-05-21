@@ -482,6 +482,152 @@ async def supersede(old_id: int, new_id: int) -> None:
     await db.commit()
 
 
+import re as _re
+
+# Common subject prefixes the extractor inserts; strip before comparing memories.
+_MEMORY_SUBJECT_PREFIX = _re.compile(
+    r"^(the\s+(user|contact|person)|she|he|they|user|contact)\s+"
+    r"(is\s+|has\s+|prefers\s+(to\s+)?|likes\s+(to\s+)?|wants\s+(to\s+)?|"
+    r"identifies\s+(as\s+|himself\s+as\s+|herself\s+as\s+)?|"
+    r"explicitly\s+requested\s+(that\s+the\s+(assistant|bot)\s+)?|"
+    r"dislikes\s+(the\s+(assistant|bot)\s+)?|"
+    r"continues\s+to\s+|frequently\s+|named\s+|named\s+is\s+)?",
+    _re.IGNORECASE,
+)
+_MEMORY_PUNCT = _re.compile(r"[\s\.,;:!?\-\"'\(\)\[\]]+")
+
+
+def _normalize_memory(content: str) -> str:
+    """Lowercase, strip leading subject framing and punctuation, collapse spaces."""
+    s = (content or "").strip().lower()
+    # Trim once-only common openers.
+    s = _MEMORY_SUBJECT_PREFIX.sub("", s, count=1).strip()
+    # Collapse all punctuation + whitespace runs into a single space.
+    s = _MEMORY_PUNCT.sub(" ", s).strip()
+    return s
+
+
+async def memory_duplicate_exists(
+    *, conn_id: str, chat_id: int, kind: str, content: str
+) -> bool:
+    """True if an active memory row of the same kind already covers this content.
+    Compares normalized forms (lowercased, punctuation-stripped, subject-prefix-stripped).
+    Exact match OR substring match if either normalized form is >= 25 chars.
+    """
+    db = _db()
+    now = int(time.time())
+    cur = await db.execute(
+        """
+        SELECT content FROM contact_memory
+        WHERE conn_id = ? AND chat_id = ? AND kind = ?
+          AND superseded_by IS NULL
+          AND (expires_at IS NULL OR expires_at > ?)
+        """,
+        (conn_id, chat_id, kind, now),
+    )
+    rows = await cur.fetchall()
+    needle = _normalize_memory(content)
+    if not needle:
+        return False
+    for r in rows:
+        hay = _normalize_memory(r["content"] or "")
+        if not hay:
+            continue
+        if needle == hay:
+            return True
+        if len(needle) >= 25 and needle in hay:
+            return True
+        if len(hay) >= 25 and hay in needle:
+            return True
+    return False
+
+
+async def dedupe_chat_memory(*, conn_id: str, chat_id: int) -> int:
+    """Retroactively dedupe memory rows for a chat. Keep oldest of each
+    (kind, normalized content) cluster; mark the rest as expired. Returns count expired.
+    Also drops rows whose normalized content is a substring of an older row's normalized content.
+    """
+    db = _db()
+    now = int(time.time())
+    cur = await db.execute(
+        """
+        SELECT id, kind, content, created_at FROM contact_memory
+        WHERE conn_id = ? AND chat_id = ?
+          AND superseded_by IS NULL
+          AND (expires_at IS NULL OR expires_at > ?)
+        ORDER BY created_at ASC, id ASC
+        """,
+        (conn_id, chat_id, now),
+    )
+    rows = await cur.fetchall()
+    kept: list[tuple[int, str, str]] = []  # (id, kind, normalized_content)
+    to_expire: list[int] = []
+    for r in rows:
+        norm = _normalize_memory(r["content"])
+        if not norm:
+            to_expire.append(r["id"])
+            continue
+        dup = False
+        for _, kept_kind, kept_norm in kept:
+            if kept_kind != r["kind"]:
+                continue
+            if norm == kept_norm:
+                dup = True
+                break
+            # Substring match either direction with length floor.
+            if len(norm) >= 25 and norm in kept_norm:
+                dup = True
+                break
+            if len(kept_norm) >= 25 and kept_norm in norm:
+                dup = True
+                break
+        if dup:
+            to_expire.append(r["id"])
+        else:
+            kept.append((r["id"], r["kind"], norm))
+    if to_expire:
+        placeholders = ",".join("?" * len(to_expire))
+        await db.execute(
+            f"UPDATE contact_memory SET expires_at = ? WHERE id IN ({placeholders})",
+            (now, *to_expire),
+        )
+        await db.commit()
+    return len(to_expire)
+
+
+async def list_unextracted_messages(
+    *, conn_id: str, chat_id: int, limit: int = 300
+) -> list[dict[str, Any]]:
+    """Return messages for this chat that haven't been fed to the extractor yet,
+    oldest-first."""
+    db = _db()
+    cur = await db.execute(
+        """
+        SELECT id, role, content, created_at FROM messages
+        WHERE conn_id = ? AND chat_id = ? AND extracted_at IS NULL
+        ORDER BY id ASC
+        LIMIT ?
+        """,
+        (conn_id, chat_id, limit),
+    )
+    rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def mark_messages_extracted(message_ids: list[int]) -> None:
+    """Stamp these message rows with extracted_at=now so the extractor doesn't re-eat them."""
+    if not message_ids:
+        return
+    db = _db()
+    now = int(time.time())
+    placeholders = ",".join("?" * len(message_ids))
+    await db.execute(
+        f"UPDATE messages SET extracted_at = ? WHERE id IN ({placeholders})",
+        (now, *message_ids),
+    )
+    await db.commit()
+
+
 # ---------------------------------------------------------------------------
 # extraction_queue
 # ---------------------------------------------------------------------------
