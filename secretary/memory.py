@@ -194,7 +194,7 @@ async def maybe_refresh_style(conn_id: str, chat_id: int) -> None:
                 {"role": "system", "content": STYLE_SYSTEM},
                 {"role": "user", "content": convo},
             ],
-            temperature=0.1,
+            temperature=0.2,
             max_tokens=2000,
             response_format={"type": "json_object"},
         )
@@ -235,7 +235,7 @@ async def summarize_old_history(conn_id: str, chat_id: int) -> None:
                 )},
                 {"role": "user", "content": convo},
             ],
-            temperature=0.3,
+            temperature=0.2,
             max_tokens=4000,
         )
         summary = (resp.choices[0].message.content or "").strip()
