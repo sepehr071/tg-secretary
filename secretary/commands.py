@@ -605,6 +605,7 @@ Tuning (live, no restart):
 Tools:
  /preview <text> — dry-run draft, no send
  /contacts — list every tagged chat
+ /senders [N] — last N chats that messaged you (incl. UNTAGGED)
  /find <query> — search nicknames + connections
  /say <chat_id> <text> — send as bot manually
  /pending — list outstanding HITL drafts
@@ -624,6 +625,50 @@ async def on_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------------------------------------------------------------------------
 # extra controls
 # ---------------------------------------------------------------------------
+
+
+async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """List every chat that has sent you at least one message, tagged or not."""
+    if not _is_owner(update):
+        return
+    n = 20
+    if ctx.args:
+        parsed = _parse_int(ctx.args[0])
+        if parsed is not None and parsed > 0:
+            n = min(parsed, 100)
+    conn = db._db()
+    cur = await conn.execute(
+        """
+        SELECT
+            m.chat_id,
+            COUNT(*) AS msg_count,
+            MAX(m.created_at) AS last_seen,
+            o.relationship,
+            o.nickname
+        FROM messages m
+        LEFT JOIN contact_overrides o ON o.chat_id = m.chat_id AND o.conn_id = m.conn_id
+        WHERE m.role = 'user'
+        GROUP BY m.chat_id
+        ORDER BY last_seen DESC
+        LIMIT ?
+        """,
+        (n,),
+    )
+    rows = list(await cur.fetchall())
+    if not rows:
+        await _reply(update, "(no inbound messages yet)")
+        return
+    now = int(time.time())
+    lines = [f"last {len(rows)} senders (newest first):"]
+    for r in rows:
+        age_min = (now - r["last_seen"]) // 60
+        rel = r["relationship"] or "untagged"
+        nick = r["nickname"] or "?"
+        lines.append(
+            f"  {r['chat_id']}  [{rel}]  {nick}  · {r['msg_count']} msgs · {age_min}m ago"
+        )
+    lines.append("\ntag with: /who <chat_id> <relationship> [nickname]")
+    await _reply(update, "\n".join(lines))
 
 
 async def on_contacts(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -930,6 +975,7 @@ def register(app: Application) -> None:
 
     # new owner-control commands
     app.add_handler(CommandHandler("contacts", on_contacts))
+    app.add_handler(CommandHandler("senders", on_senders))
     app.add_handler(CommandHandler("find", on_find))
     app.add_handler(CommandHandler("say", on_say))
     app.add_handler(CommandHandler("reload_prompts", on_reload_prompts))
