@@ -68,3 +68,29 @@ Ubuntu + pm2. See `scripts/setup-ubuntu.sh` for one-shot install, `ecosystem.con
 ## Secrets
 
 `.env` is gitignored. `.env.example` is scrubbed (placeholders only). Whoever has `.env` has full impersonation power for the configured Telegram account — rotate via `@BotFather /revoke` + OpenRouter dashboard if leaked.
+
+## Working notes for future Claude sessions
+
+### Foot-guns
+- OpenRouter `reasoning.enabled=false` is rejected by Gemini 3.5+ ("Reasoning is mandatory"). Use `extra_body={"reasoning": {"effort": "minimal", "exclude": True}}` for cross-model compat.
+- Telegram `getFile` URL embeds the bot token; httpx logs it at INFO. Treat `pm2 logs` as a token-leak surface — `@BotFather /revoke` if a paste escapes.
+- `cur.lastrowid` is `int | None`. Guard with `if lastrowid is None: raise RuntimeError(...)` before returning from INSERT helpers.
+- OpenAI SDK `messages=` trips Pyright on `list[dict[str, Any]]`. Suppress with `# type: ignore[arg-type]` on the arg line itself.
+- `.gitignore` must include `*.db-wal` + `*.db-shm` (WAL is enabled).
+- `uv.lock` is committed (NOT gitignored) so `uv sync --frozen` works in `run.sh`.
+- Persian/Arabic in Windows stdout crashes on cp1252; prefix one-off CLI runs with `PYTHONIOENCODING=utf-8`.
+
+### Internal patterns
+- **Live env override**: read `db.get_state(key)` first, fall back to `settings.X`. See `handlers._live_int(...)` and `_voice_enabled()`. New tunables: add the live-read helper + a `/cmd` in `commands.py`.
+- **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/personas/<rel>.txt` → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → memory block → style fingerprint. `prompts.clear_cache()` flushes the mtime cache after edits.
+- **Profile capture**: call `_capture_profile(conn_id, chat_id, msg)` in every inbound entry point (text / voice / non-text) after the owner-skip guard, before persisting the row.
+- **Owner-only command guard**: every `on_<cmd>` starts with `if not _is_owner(update): return`.
+
+### Smoke tests
+- Import-time crash: `uv run python -c "import secretary.__main__; print('OK')"`.
+- Migration sanity: `init_db`, then `PRAGMA table_info(<table>)` for any migrated table.
+- Log filter on Ubuntu: `pm2 logs tg-secretary --lines 200 | grep -iE "voice|whisper|httpx|llm"`.
+
+### Deploy
+- `pm2 start ecosystem.config.cjs` is the only command users need; `scripts/setup-ubuntu.sh` is interactive + re-runnable (asks to regenerate or keep existing `.env`).
+- pm2 autostart: `pm2 startup systemd -u $USER --hp $HOME`, run the printed sudo line, then `pm2 save`.
