@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -6,6 +7,28 @@ from openai import AsyncOpenAI
 from .config import settings
 
 log = logging.getLogger(__name__)
+
+
+# Strip junk some models leak around the actual reply.
+_LEADING_LABEL = re.compile(r"^\s*(reply|response|answer|message|out)\s*:\s*", re.IGNORECASE)
+_TRANSLATION_TAIL = re.compile(r"\s*\([A-Za-z][^)]{0,200}\)\s*$")
+_SCRATCHPAD_TAIL = re.compile(r"\n\s*[*\-•]\s+.*$", re.DOTALL)
+
+
+def _clean_output(text: str) -> str:
+    """Strip leaked markdown/scratchpad/translation noise around the actual reply."""
+    text = text.strip()
+    # Drop a single pair of wrapping quotes if the entire reply is quoted.
+    if len(text) >= 2 and text[0] in '"“«' and text[-1] in '"”»':
+        text = text[1:-1].strip()
+    text = _LEADING_LABEL.sub("", text)
+    # Order matters: scratchpad first (removes trailing junk lines),
+    # then translation tail (which only matches at the new end).
+    text = _SCRATCHPAD_TAIL.sub("", text)
+    text = _TRANSLATION_TAIL.sub("", text)
+    # Trim a dangling opening/closing quote left by partial wrap.
+    text = text.rstrip('"”»').rstrip()
+    return text.strip()
 
 client = AsyncOpenAI(
     api_key=settings.openrouter_api_key,
@@ -33,20 +56,28 @@ async def generate_reply(
     messages.extend(history)
     messages.append({"role": "user", "content": wrapped})
     log.debug("openrouter request: model=%s msgs=%d", settings.openrouter_model, len(messages))
+    # Disable reasoning on the reply model. `enabled=false` covers Anthropic 4.6+
+    # (which ignores `effort`); `exclude=true` hides any reasoning tokens from
+    # the returned content for every other provider. Keeps replies fast + cheap
+    # and stops scratchpad/thinking leakage from corrupting the text the contact sees.
+    extra_body = {"reasoning": {"enabled": False, "exclude": True}}
+
     resp = await client.chat.completions.create(
         model=settings.openrouter_model,
         messages=messages,  # type: ignore[arg-type]
-        temperature=0.6,
+        temperature=0.65,
         max_tokens=600,
+        extra_body=extra_body,
     )
-    text = (resp.choices[0].message.content or "").strip()
+    text = _clean_output(resp.choices[0].message.content or "")
     if not text:
         # one retry with slightly lower temperature
         resp = await client.chat.completions.create(
             model=settings.openrouter_model,
             messages=messages,  # type: ignore[arg-type]
-            temperature=0.3,
+            temperature=0.4,
             max_tokens=600,
+            extra_body=extra_body,
         )
-        text = (resp.choices[0].message.content or "").strip()
+        text = _clean_output(resp.choices[0].message.content or "")
     return text
