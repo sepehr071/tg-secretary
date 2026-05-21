@@ -32,9 +32,42 @@ def _is_owner(update: Update) -> bool:
     )
 
 
+# Telegram caps a single sendMessage at 4096 chars. Stay under it with margin.
+_TG_MSG_LIMIT = 3800
+
+
+def _split_for_tg(text: str, limit: int = _TG_MSG_LIMIT) -> list[str]:
+    """Split a long string into Telegram-safe chunks. Prefers line boundaries,
+    falls back to hard slices for single oversize lines."""
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    buf = ""
+    for line in text.split("\n"):
+        # Single line longer than limit — hard-slice it.
+        if len(line) > limit:
+            if buf:
+                chunks.append(buf)
+                buf = ""
+            for i in range(0, len(line), limit):
+                chunks.append(line[i:i + limit])
+            continue
+        candidate = line if not buf else buf + "\n" + line
+        if len(candidate) > limit:
+            chunks.append(buf)
+            buf = line
+        else:
+            buf = candidate
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
 async def _reply(update: Update, text: str) -> None:
-    if update.effective_message is not None:
-        await update.effective_message.reply_text(text)
+    if update.effective_message is None:
+        return
+    for chunk in _split_for_tg(text):
+        await update.effective_message.reply_text(chunk)
 
 
 async def _active_conn_id() -> str | None:
