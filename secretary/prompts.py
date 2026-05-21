@@ -180,4 +180,7 @@ def load_system_prompt(
         )
 
     assembled = "".join(parts)
-    return assembled.format(owner_first_name=settings.owner_first_name)
+    # Use str.replace, NOT str.format — the assembled string may contain literal
+    # `{` and `}` characters (style_fingerprint is JSON, memory block can quote
+    # user text). str.format would try to parse those as fields and raise KeyError.
+    return assembled.replace("{owner_first_name}", settings.owner_first_name)
