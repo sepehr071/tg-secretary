@@ -382,11 +382,15 @@ async def _handle_inbound_text(
         except Exception as e:  # noqa: BLE001
             log.debug("typing action failed: %s", e)
 
+    summary_row = await db.get_summary(conn_id=conn_id, chat_id=chat_id)
+    summary_text = summary_row["summary"] if summary_row else None
+
     try:
         reply_text = await llm.generate_reply(
             system_prompt=system_prompt,
             history=history,
             user_message=text_content,
+            summary=summary_text,
         )
     except Exception:
         log.exception("LLM call failed")
