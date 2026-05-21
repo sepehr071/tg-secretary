@@ -60,6 +60,24 @@ async def _notify_owner(
         log.exception("owner notify failed")
 
 
+async def _capture_profile(conn_id: str, chat_id: int, msg: Any) -> None:
+    """Snapshot the sender's Telegram profile (first/last name + username) into
+    contact_overrides on every inbound message. Cheap upsert; ignores empties."""
+    u = getattr(msg, "from_user", None)
+    if u is None:
+        return
+    try:
+        await db.upsert_contact_profile(
+            conn_id=conn_id,
+            chat_id=chat_id,
+            first_name=getattr(u, "first_name", None),
+            last_name=getattr(u, "last_name", None),
+            username=getattr(u, "username", None),
+        )
+    except Exception:
+        log.exception("capture_profile failed (chat=%s)", chat_id)
+
+
 def _contact_name(msg: Any) -> str:
     u = getattr(msg, "from_user", None)
     if u is None:
@@ -475,6 +493,8 @@ async def on_business_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         log.info("connection %s not allowed to reply — skipping", conn_id)
         return
 
+    await _capture_profile(conn_id, chat_id, msg)
+
     await db.append_message(
         conn_id=conn_id,
         chat_id=chat_id,
@@ -523,6 +543,8 @@ async def on_business_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         log.info("voice: connection not allowed to reply, skipping")
         return
     owner_chat_id = conn_row["owner_chat_id"]
+
+    await _capture_profile(conn_id, chat_id, msg)
 
     # Cooldown short-circuit
     arrived_at = int(time.time())
@@ -624,6 +646,8 @@ async def on_business_non_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
     if not conn_row:
         return
     owner_chat_id = conn_row["owner_chat_id"]
+
+    await _capture_profile(conn_id, chat_id, msg)
 
     await db.append_message(
         conn_id=conn_id, chat_id=chat_id, role="user",

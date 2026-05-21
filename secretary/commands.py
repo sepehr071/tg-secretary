@@ -644,7 +644,10 @@ async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             COUNT(*) AS msg_count,
             MAX(m.created_at) AS last_seen,
             o.relationship,
-            o.nickname
+            o.nickname,
+            o.tg_first_name,
+            o.tg_last_name,
+            o.tg_username
         FROM messages m
         LEFT JOIN contact_overrides o ON o.chat_id = m.chat_id AND o.conn_id = m.conn_id
         WHERE m.role = 'user'
@@ -663,9 +666,14 @@ async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for r in rows:
         age_min = (now - r["last_seen"]) // 60
         rel = r["relationship"] or "untagged"
-        nick = r["nickname"] or "?"
+        nick = r["nickname"]
+        full = " ".join(p for p in (r["tg_first_name"], r["tg_last_name"]) if p)
+        uname = f"@{r['tg_username']}" if r["tg_username"] else ""
+        # display: prefer nickname, fall back to full name, then username, then ?
+        who = nick or full or uname or "?"
+        uname_tail = f" ({uname})" if uname and who != uname else ""
         lines.append(
-            f"  {r['chat_id']}  [{rel}]  {nick}  · {r['msg_count']} msgs · {age_min}m ago"
+            f"  {r['chat_id']}  [{rel}]  {who}{uname_tail}  · {r['msg_count']} msgs · {age_min}m ago"
         )
     lines.append("\ntag with: /who <chat_id> <relationship> [nickname]")
     await _reply(update, "\n".join(lines))
@@ -677,7 +685,8 @@ async def on_contacts(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     conn = db._db()
     cur = await conn.execute(
         """
-        SELECT chat_id, relationship, nickname, paused, updated_at
+        SELECT chat_id, relationship, nickname, paused, updated_at,
+               tg_first_name, tg_last_name, tg_username
         FROM contact_overrides
         ORDER BY updated_at DESC
         """
@@ -689,8 +698,14 @@ async def on_contacts(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     lines = ["tagged contacts:"]
     for r in rows:
         pause_mark = " 🛑" if r["paused"] else ""
-        nick = r["nickname"] or "?"
-        lines.append(f"  {r['chat_id']}  [{r['relationship']}]  {nick}{pause_mark}")
+        nick = r["nickname"]
+        full = " ".join(p for p in (r["tg_first_name"], r["tg_last_name"]) if p)
+        uname = f"@{r['tg_username']}" if r["tg_username"] else ""
+        who = nick or full or uname or "?"
+        uname_tail = f" ({uname})" if uname and who != uname else ""
+        lines.append(
+            f"  {r['chat_id']}  [{r['relationship']}]  {who}{uname_tail}{pause_mark}"
+        )
     await _reply(update, "\n".join(lines))
 
 
@@ -702,21 +717,30 @@ async def on_find(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply(update, "usage: /find <query>")
         return
     conn = db._db()
+    like = f"%{query}%"
     cur = await conn.execute(
         """
-        SELECT chat_id, relationship, nickname
+        SELECT chat_id, relationship, nickname, tg_first_name, tg_last_name, tg_username
         FROM contact_overrides
         WHERE LOWER(COALESCE(nickname,'')) LIKE ?
+           OR LOWER(COALESCE(tg_first_name,'')) LIKE ?
+           OR LOWER(COALESCE(tg_last_name,'')) LIKE ?
+           OR LOWER(COALESCE(tg_username,'')) LIKE ?
         """,
-        (f"%{query}%",),
+        (like, like, like, like),
     )
     rows = list(await cur.fetchall())
     if not rows:
-        await _reply(update, f"no contact nickname matches '{query}'")
+        await _reply(update, f"no contact matches '{query}'")
         return
     lines = [f"matches for '{query}':"]
     for r in rows:
-        lines.append(f"  {r['chat_id']}  [{r['relationship']}]  {r['nickname']}")
+        nick = r["nickname"]
+        full = " ".join(p for p in (r["tg_first_name"], r["tg_last_name"]) if p)
+        uname = f"@{r['tg_username']}" if r["tg_username"] else ""
+        who = nick or full or uname or "?"
+        uname_tail = f" ({uname})" if uname and who != uname else ""
+        lines.append(f"  {r['chat_id']}  [{r['relationship']}]  {who}{uname_tail}")
     await _reply(update, "\n".join(lines))
 
 

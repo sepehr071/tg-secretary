@@ -102,6 +102,9 @@ MIGRATE_VIA_BOT = "ALTER TABLE messages ADD COLUMN via_bot INTEGER NOT NULL DEFA
 MIGRATE_DELETED_AT = "ALTER TABLE messages ADD COLUMN deleted_at INTEGER;"
 MIGRATE_EDITED_AT = "ALTER TABLE messages ADD COLUMN edited_at INTEGER;"
 MIGRATE_EXTRACTED_AT = "ALTER TABLE messages ADD COLUMN extracted_at INTEGER;"
+MIGRATE_TG_FIRST_NAME = "ALTER TABLE contact_overrides ADD COLUMN tg_first_name TEXT;"
+MIGRATE_TG_LAST_NAME = "ALTER TABLE contact_overrides ADD COLUMN tg_last_name TEXT;"
+MIGRATE_TG_USERNAME = "ALTER TABLE contact_overrides ADD COLUMN tg_username TEXT;"
 
 
 _conn: aiosqlite.Connection | None = None
@@ -116,7 +119,10 @@ async def init_db() -> aiosqlite.Connection:
         await _conn.execute("PRAGMA journal_mode=WAL")
         await _conn.execute("PRAGMA synchronous=NORMAL")
     await _conn.executescript(SCHEMA)
-    for stmt in (MIGRATE_VIA_BOT, MIGRATE_DELETED_AT, MIGRATE_EDITED_AT, MIGRATE_EXTRACTED_AT):
+    for stmt in (
+        MIGRATE_VIA_BOT, MIGRATE_DELETED_AT, MIGRATE_EDITED_AT, MIGRATE_EXTRACTED_AT,
+        MIGRATE_TG_FIRST_NAME, MIGRATE_TG_LAST_NAME, MIGRATE_TG_USERNAME,
+    ):
         try:
             await _conn.execute(stmt)
         except aiosqlite.OperationalError:
@@ -312,7 +318,33 @@ _OVERRIDE_COLUMNS = {
     "relationship",
     "style_fingerprint",
     "style_updated_at",
+    "tg_first_name",
+    "tg_last_name",
+    "tg_username",
 }
+
+
+async def upsert_contact_profile(
+    *,
+    conn_id: str,
+    chat_id: int,
+    first_name: str | None,
+    last_name: str | None,
+    username: str | None,
+) -> None:
+    """Cheap upsert of Telegram-provided profile fields from inbound messages.
+    Only overwrites when value is non-empty (so a temp missing username doesn't wipe it).
+    """
+    fields: dict[str, Any] = {}
+    if first_name:
+        fields["tg_first_name"] = first_name
+    if last_name:
+        fields["tg_last_name"] = last_name
+    if username:
+        fields["tg_username"] = username
+    if not fields:
+        return
+    await upsert_override(conn_id=conn_id, chat_id=chat_id, **fields)
 
 
 async def get_override(*, conn_id: str, chat_id: int) -> dict[str, Any] | None:
