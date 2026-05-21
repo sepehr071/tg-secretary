@@ -499,9 +499,15 @@ async def on_business_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
     sender_id = msg.from_user.id if msg.from_user else None
     chat_id = msg.chat.id
     voice = msg.voice
+    log.info(
+        "voice handler fired: chat=%s sender=%s duration=%ss file_id=%s",
+        chat_id, sender_id, getattr(voice, "duration", "?"),
+        getattr(voice, "file_id", "?"),
+    )
 
     # Owner-skip: log a placeholder marker so cooldown counts it.
     if sender_id == settings.owner_user_id:
+        log.info("voice: owner-authored, storing placeholder + cooldown reset")
         await db.append_message(
             conn_id=conn_id,
             chat_id=chat_id,
@@ -514,15 +520,20 @@ async def on_business_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
 
     conn_row = await db.get_connection(conn_id)
     if not conn_row or not conn_row["is_enabled"] or not conn_row["can_reply"]:
+        log.info("voice: connection not allowed to reply, skipping")
         return
     owner_chat_id = conn_row["owner_chat_id"]
 
     # Cooldown short-circuit
     arrived_at = int(time.time())
-    cooldown_since = arrived_at - settings.owner_active_cooldown_seconds
+    cooldown_seconds = await _live_int(
+        "cooldown_override", settings.owner_active_cooldown_seconds
+    )
+    cooldown_since = arrived_at - cooldown_seconds
     if await db.owner_active_since(
         conn_id=conn_id, chat_id=chat_id, since_ts=cooldown_since
     ):
+        log.info("voice: within owner-active cooldown (%ds), skipping", cooldown_seconds)
         await db.append_message(
             conn_id=conn_id, chat_id=chat_id, role="user",
             content="[voice]", tg_message_id=msg.message_id,
@@ -531,7 +542,12 @@ async def on_business_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
 
     contact_name = _contact_name(msg)
 
-    if not await _voice_enabled() or voice.duration > 120:
+    voice_on = await _voice_enabled()
+    if not voice_on:
+        log.info("voice: VOICE_TRANSCRIBE disabled (env/override), notifying owner")
+    elif voice.duration > 120:
+        log.info("voice: duration %ss exceeds 120s cap, notifying owner", voice.duration)
+    if not voice_on or voice.duration > 120:
         await db.append_message(
             conn_id=conn_id, chat_id=chat_id, role="user",
             content="[voice]", tg_message_id=msg.message_id,
@@ -542,6 +558,8 @@ async def on_business_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             f"({voice.duration}s) — transcription skipped, bot stayed silent.",
         )
         return
+
+    log.info("voice: downloading file_id=%s", voice.file_id)
 
     try:
         file = await ctx.bot.get_file(voice.file_id)
