@@ -79,6 +79,9 @@ Ubuntu + pm2. See `scripts/setup-ubuntu.sh` for one-shot install, `ecosystem.con
 - `.gitignore` must include `*.db-wal` + `*.db-shm` (WAL is enabled).
 - `uv.lock` is committed (NOT gitignored) so `uv sync --frozen` works in `run.sh`.
 - Persian/Arabic in Windows stdout crashes on cp1252; prefix one-off CLI runs with `PYTHONIOENCODING=utf-8`.
+- Closed vocab lists and example-response tables in `prompts/personas/<rel>.txt` ("Pet names: X, Y, Z. Never invent new ones." / "She: X → you: Y") make the reply model treat them as a lookup table → repetitive, robotic output. Reframe as illustrative range ("examples of the register, vary your own phrasing"), never as a fixed inventory or stimulus-response pair.
+- Never add fields to `memory.py:STYLE_SYSTEM` that capture phrasings the BOT outputs (e.g. `recurring_phrases`). Creates a feedback loop: fingerprint records bot drift → injected back as `## Style` system prompt → bot uses it more → 30-day lock-in until next refresh. Only capture durable owner-voice signals (length, formality, pet names, signature open/close).
+- `secretary/llm.py` defaults — `temperature=0.9` (retry 0.7) + `frequency_penalty=0.4` + `presence_penalty=0.2` — are tuned for vocabulary variety. The earlier 0.65/0.4 with no penalties is what produced the "robotic + repetitive" feel; don't quietly lower without a deliberate reason.
 
 ### Internal patterns
 - **Live env override**: read `db.get_state(key)` first, fall back to `settings.X`. See `handlers._live_int(...)` and `_voice_enabled()`. New tunables: add the live-read helper + a `/cmd` in `commands.py`.
