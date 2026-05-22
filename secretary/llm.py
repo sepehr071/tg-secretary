@@ -68,8 +68,10 @@ async def generate_reply(
     resp = await client.chat.completions.create(
         model=settings.openrouter_model,
         messages=messages,  # type: ignore[arg-type]
-        temperature=0.65,
+        temperature=0.9,
         max_tokens=600,
+        frequency_penalty=0.4,
+        presence_penalty=0.2,
         extra_body=extra_body,
     )
     text = _clean_output(resp.choices[0].message.content or "")
@@ -78,8 +80,10 @@ async def generate_reply(
         resp = await client.chat.completions.create(
             model=settings.openrouter_model,
             messages=messages,  # type: ignore[arg-type]
-            temperature=0.4,
+            temperature=0.7,
             max_tokens=600,
+            frequency_penalty=0.4,
+            presence_penalty=0.2,
             extra_body=extra_body,
         )
         text = _clean_output(resp.choices[0].message.content or "")

@@ -42,7 +42,9 @@ Hard rules (violation = unusable output):
 """
 
 STYLE_SYSTEM = """Analyze how the OWNER writes to this contact. Return STRICT JSON:
-{"avg_length": <int>, "formality": "casual|warm|formal", "emoji_freq": "none|light|heavy", "languages": ["en","fa",...], "pet_names": [...], "recurring_phrases": [...], "signature_open": "<string or empty>", "signature_close": "<string or empty>"}
+{"avg_length": <int>, "formality": "casual|warm|formal", "emoji_freq": "none|light|heavy", "languages": ["en","fa",...], "pet_names": [...], "signature_open": "<string or empty>", "signature_close": "<string or empty>"}
+
+Do NOT capture "recurring phrases" — that field used to create a feedback loop where the bot's own outputs got fed back as instructions. Stick to durable owner-voice signals (length, formality, language mix, pet names, signature openers/closers).
 
 No prose, no markdown fences.
 """
