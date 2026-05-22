@@ -96,14 +96,23 @@ def _build_swaps(chat_id: int, first: str | None, last: str | None, nick: str | 
     return swaps
 
 
-def _scenario_name(relationship: str, chat_id: int) -> str:
+def _scenario_name(relationship: str, chat_id: int, anonymize: bool) -> str:
     short = hashlib.sha256(str(chat_id).encode()).hexdigest()[:8]
-    return f"{relationship}_{short}"
+    prefix = "" if anonymize else "raw_"
+    return f"{prefix}{relationship}_{short}"
 
 
-def dump(source_db: Path, out_dir: Path, limit_per_relationship: int, owner_first_name: str) -> dict[str, str]:
+def dump(
+    source_db: Path,
+    out_dir: Path,
+    limit_per_relationship: int,
+    owner_first_name: str,
+    anonymize: bool,
+) -> dict[str, str]:
     """Synchronous SQLite read (we don't need aiosqlite for a one-shot script).
     Returns the full alias map used (chat_id|kind|original -> alias) for stderr summary.
+    With anonymize=False, returns empty dict and writes real names/phones/emails/URLs
+    into the fixtures — output filenames are prefixed `raw_` so .gitignore catches them.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(source_db)
@@ -127,14 +136,17 @@ def dump(source_db: Path, out_dir: Path, limit_per_relationship: int, owner_firs
         chat_id = int(ov["chat_id"])
         conn_id = ov["conn_id"]
 
-        swaps = _build_swaps(
-            chat_id,
-            ov.get("tg_first_name"),
-            ov.get("tg_last_name"),
-            ov.get("nickname"),
-        )
-        for orig, alias in swaps.items():
-            alias_summary[f"{chat_id}|{orig}"] = alias
+        if anonymize:
+            swaps = _build_swaps(
+                chat_id,
+                ov.get("tg_first_name"),
+                ov.get("tg_last_name"),
+                ov.get("nickname"),
+            )
+            for orig, alias in swaps.items():
+                alias_summary[f"{chat_id}|{orig}"] = alias
+        else:
+            swaps = {}
 
         # History: last 30 messages oldest-first.
         cur.execute(
@@ -160,14 +172,19 @@ def dump(source_db: Path, out_dir: Path, limit_per_relationship: int, owner_firs
                 break
         if contact_msg_row is None:
             continue
+        def _scrub(s: str | None) -> str | None:
+            if not anonymize:
+                return s
+            return _swap_names(_redact(s), swaps)
+
         history = [
             {
                 "role": r["role"],
-                "content": _swap_names(_redact(r["content"]), swaps) or "",
+                "content": _scrub(r["content"]) or "",
             }
             for r in history_rows[-20:]  # keep last 20 history entries
         ]
-        contact_message = _swap_names(_redact(contact_msg_row["content"]), swaps) or ""
+        contact_message = _scrub(contact_msg_row["content"]) or ""
         if not contact_message.strip():
             continue
 
@@ -182,7 +199,7 @@ def dump(source_db: Path, out_dir: Path, limit_per_relationship: int, owner_firs
         memory = [
             {
                 "kind": m["kind"],
-                "content": _swap_names(_redact(m["content"]), swaps) or "",
+                "content": _scrub(m["content"]) or "",
             }
             for m in cur.fetchall()
         ]
@@ -193,13 +210,13 @@ def dump(source_db: Path, out_dir: Path, limit_per_relationship: int, owner_firs
             (conn_id, chat_id),
         )
         srow = cur.fetchone()
-        summary = _swap_names(_redact(srow["summary"]), swaps) if srow else None
+        summary = _scrub(srow["summary"]) if srow else None
 
         scenario = {
-            "name": _scenario_name(rel, chat_id),
+            "name": _scenario_name(rel, chat_id, anonymize),
             "relationship": rel,
             "owner_first_name": owner_first_name,
-            "persona_extra": _swap_names(_redact(ov.get("persona_extra")), swaps),
+            "persona_extra": _scrub(ov.get("persona_extra")),
             "style_fingerprint": ov.get("style_fingerprint"),
             "memory": memory,
             "summary": summary,
@@ -225,13 +242,33 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=REPO_ROOT / "tests" / "fixtures" / "scenarios")
     ap.add_argument("--limit-per-relationship", type=int, default=3)
     ap.add_argument("--owner-first-name", type=str, default="Sepehr")
+    ap.add_argument(
+        "--no-anonymize",
+        action="store_true",
+        help="Write real names/phones/emails/URLs into the fixtures. "
+             "Output filenames are prefixed `raw_` and gitignored. "
+             "WARNING: these fixtures are still sent to the judge model "
+             "(OpenRouter -> Anthropic) when you run scripts/test_prompts.py.",
+    )
     args = ap.parse_args()
 
     if not args.source_db.exists():
         print(f"ERROR: source DB not found at {args.source_db}", file=sys.stderr)
         sys.exit(2)
 
-    alias_map = dump(args.source_db, args.out, args.limit_per_relationship, args.owner_first_name)
+    anonymize = not args.no_anonymize
+    if not anonymize:
+        print(
+            "WARNING: --no-anonymize: real chat content (names, phones, emails, URLs) "
+            "will be written into raw_*.json fixtures. .gitignore catches them, but "
+            "scripts/test_prompts.py still sends them to OpenRouter when grading.\n",
+            file=sys.stderr,
+        )
+
+    alias_map = dump(
+        args.source_db, args.out, args.limit_per_relationship,
+        args.owner_first_name, anonymize,
+    )
     if alias_map:
         print("\nalias map (chat_id|original -> alias):", file=sys.stderr)
         for k, v in sorted(alias_map.items()):
