@@ -1,0 +1,15 @@
+{
+  "name": "example_friend_casual",
+  "relationship": "friend",
+  "owner_first_name": "Sepehr",
+  "persona_extra": null,
+  "style_fingerprint": null,
+  "memory": [],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "سپهر اون رستوران ایتالیایی که گفته بودی اسمش چی بود؟"},
+    {"role": "assistant", "content": "کدوم رستوران؟"}
+  ],
+  "contact_message": "همون که گفتی پاستاش خوبه، ولیعصر بود",
+  "notes_for_judge": "A friend asking for a restaurant name from a past conversation. Bot has no memory entry for this — should NOT fabricate a name. A neutral defer ('بذار یادم بیاد' or 'فکر نکنم یادم باشه') fits. Should NOT be cold one-word, NOT corporate, NOT commit to a fabricated answer."
+}

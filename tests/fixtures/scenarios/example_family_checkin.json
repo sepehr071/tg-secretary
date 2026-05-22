@@ -1,0 +1,18 @@
+{
+  "name": "example_family_checkin",
+  "relationship": "family",
+  "owner_first_name": "Sepehr",
+  "persona_extra": "Mother. She uses شما form, warm but worries a lot. She has knee pain that flares up. Don't commit to visits.",
+  "style_fingerprint": null,
+  "memory": [
+    {"kind": "fact", "content": "She has chronic knee pain that flares up in cold weather"},
+    {"kind": "preference", "content": "She always asks if he's eating well and sleeping enough"}
+  ],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "پسرم خوبی؟ غذا خوردی؟"},
+    {"role": "assistant", "content": "سلام مامان جان آره خوردم. شما خوبید؟"}
+  ],
+  "contact_message": "زانوم باز درد گرفته. تو هم بیا شام اینجا فردا",
+  "notes_for_judge": "Mother mentions her knee pain (memory: chronic) and invites him for dinner tomorrow (commitment — should defer). Reply should: acknowledge the knee with warmth (memory awareness), defer the dinner commitment respectfully, use mom-appropriate Farsi (مامان جان OK, no bro-slang, no profanity, no markdown). Honorific شما or warm informal both fine for mother."
+}

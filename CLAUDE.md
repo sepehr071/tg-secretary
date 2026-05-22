@@ -29,6 +29,18 @@ secretary/
 prompts/
 ├── personas/         <relationship>.txt — gf, bff, friend, family, work, ...
 └── contacts/         <chat_id>.txt — hand-tuned per-friend prompts
+
+tests/
+├── fixtures/
+│   ├── scenarios/    *.json — synthetic + dumped scenarios; raw_*.json gitignored
+│   └── rubrics/      <rel>.json — judge rubric per relationship
+├── snapshots/        gitignored — assembled prompt + reply + judge verdict per run
+└── judge_prompt.md   judge system prompt + strict JSON schema
+
+scripts/
+├── setup-ubuntu.sh
+├── dump_fixtures.py  secretary.db → tests/fixtures/scenarios/*.json (anonymized or raw)
+└── test_prompts.py   per-scenario runner + LLM judge
 ```
 
 ## Reply pipeline (text)
@@ -69,6 +81,26 @@ Ubuntu + pm2. See `scripts/setup-ubuntu.sh` for one-shot install, `ecosystem.con
 
 `.env` is gitignored. `.env.example` is scrubbed (placeholders only). Whoever has `.env` has full impersonation power for the configured Telegram account — rotate via `@BotFather /revoke` + OpenRouter dashboard if leaked.
 
+## Testing
+
+LLM-judged prompt-management suite. Real OpenRouter calls, no pytest, no mocks. Catches voice drift before it ships.
+
+- `scripts/dump_fixtures.py` — `secretary.db` → `tests/fixtures/scenarios/*.json`. Anonymized by default (sha256-keyed alias swap + phone/email/URL redaction). `--no-anonymize` writes real content into `raw_*.json` (gitignored by prefix). Anonymization preserves emojis/register/code-switching/swears — only PII gets swapped.
+- `scripts/test_prompts.py` — for each scenario: temp DB seed → `prompts.load_system_prompt` assembly → real reply call → structural checks (no leaked `reply:`, no `(translation)` tail, no markdown, no wrap quotes) → judge call (default `anthropic/claude-sonnet-4-6`) with per-relationship rubric → snapshot. Exit 0 only if every scenario passes.
+- Verdict: `weighted_avg ≥ pass_threshold` AND every dimension `≥` its `min` AND `red_flags_hit == []`. Red flags hard-gate (e.g. one `**bold**` token = fail).
+- Style-fingerprint guard: catches `recurring_phrases` key before any LLM call (the feedback-loop foot-gun).
+- Cost envelope: ~$0.035/scenario for full grade; ~$0.015 with `--no-judge`. Full 7-scenario starter run ~$0.25.
+
+Workflow:
+```bash
+uv run python scripts/dump_fixtures.py --no-anonymize --limit-per-relationship 5
+uv run python scripts/test_prompts.py --no-judge                  # fast iteration
+uv run python scripts/test_prompts.py                             # graded run
+uv run python scripts/test_prompts.py --scenario raw_gf_a1b2c3d4 --verbose
+```
+
+Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled persona stack + reply + judge JSON — diff them after a persona-file edit to see what changed.
+
 ## Working notes for future Claude sessions
 
 ### Foot-guns
@@ -82,6 +114,8 @@ Ubuntu + pm2. See `scripts/setup-ubuntu.sh` for one-shot install, `ecosystem.con
 - Closed vocab lists and example-response tables in `prompts/personas/<rel>.txt` ("Pet names: X, Y, Z. Never invent new ones." / "She: X → you: Y") make the reply model treat them as a lookup table → repetitive, robotic output. Reframe as illustrative range ("examples of the register, vary your own phrasing"), never as a fixed inventory or stimulus-response pair.
 - Never add fields to `memory.py:STYLE_SYSTEM` that capture phrasings the BOT outputs (e.g. `recurring_phrases`). Creates a feedback loop: fingerprint records bot drift → injected back as `## Style` system prompt → bot uses it more → 30-day lock-in until next refresh. Only capture durable owner-voice signals (length, formality, pet names, signature open/close).
 - `secretary/llm.py` defaults — `temperature=0.9` (retry 0.7) + `frequency_penalty=0.4` + `presence_penalty=0.2` — are tuned for vocabulary variety. The earlier 0.65/0.4 with no penalties is what produced the "robotic + repetitive" feel; don't quietly lower without a deliberate reason.
+- `dump_fixtures.py --no-anonymize` outputs `tests/fixtures/scenarios/raw_*.json` — gitignored by prefix, so they don't leak via git. BUT `test_prompts.py` still ships those fixtures to OpenRouter (reply model + judge model) on every run. .gitignore is not a network filter; if real-data fidelity matters less than that round-trip, stay on anonymized fixtures.
+- `prompts.load_system_prompt` uses `str.replace`, NOT `str.format`, to substitute `{owner_first_name}` — the assembled prompt contains literal `{`/`}` characters (JSON-style style_fingerprint, memory entries that quote user text). Switching to `.format()` will KeyError on any scenario with memory containing braces; the test suite exercises this implicitly.
 
 ### Internal patterns
 - **Live env override**: read `db.get_state(key)` first, fall back to `settings.X`. See `handlers._live_int(...)` and `_voice_enabled()`. New tunables: add the live-read helper + a `/cmd` in `commands.py`.
@@ -93,6 +127,8 @@ Ubuntu + pm2. See `scripts/setup-ubuntu.sh` for one-shot install, `ecosystem.con
 - Import-time crash: `uv run python -c "import secretary.__main__; print('OK')"`.
 - Migration sanity: `init_db`, then `PRAGMA table_info(<table>)` for any migrated table.
 - Log filter on Ubuntu: `pm2 logs tg-secretary --lines 200 | grep -iE "voice|whisper|httpx|llm"`.
+- Prompt suite, no LLM cost: `uv run python scripts/test_prompts.py --no-judge` — exercises scenario load + DB seed + persona stack assembly + reply call + cleanup-pipeline structural checks.
+- Prompt suite, full: `uv run python scripts/test_prompts.py` — adds judge grading + rubric verdict.
 
 ### Deploy
 - `pm2 start ecosystem.config.cjs` is the only command users need; `scripts/setup-ubuntu.sh` is interactive + re-runnable (asks to regenerate or keep existing `.env`).

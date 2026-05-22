@@ -20,3 +20,11 @@ build/
 .vscode/
 logs/
 .pm2/
+
+# Test artifacts
+tests/snapshots/*
+!tests/snapshots/.gitkeep
+tests/fixtures/scenarios/raw_*.json
+tmp_test_*.db
+tmp_test_*.db-wal
+tmp_test_*.db-shm
