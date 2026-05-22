@@ -28,17 +28,18 @@ Return STRICT JSON, no prose, no markdown fences:
 
 Hard rules (violation = unusable output):
 1. Subject must be the CONTACT (the human messaging the owner), never "the user" / "the assistant" / "the bot". Use the contact's real name if visible; otherwise write "She" / "He" / "They".
-2. SKIP if the slice contains nothing new and durable. An empty {"memories": []} is GOOD output — do not fabricate.
-3. Re-read the "Existing memory" block. If a candidate memory is already there (even paraphrased), DO NOT emit it again. Dedup aggressively.
-4. Do NOT extract: greetings, individual emoji, single-word reactions, swearing, sexual talk, casual jokes, moods of the moment, sentences fragments. Only durable signal.
-5. "fact" = permanent reality (job, family, city, pet, birthday).
-6. "preference" = stable communication preference (language, message length, emoji policy). Not one-off requests.
-7. "promise" = a real commitment with a fulfilment criterion.
-8. "event" = a real scheduled occurrence (interview Tuesday, trip next month). expires_at = unix timestamp of event + 7 days.
-9. "inside_joke" = a recurring callback that appears MULTIPLE times across the slice.
-10. "open_thread" = a real unresolved topic the contact cares about. Not "the user uses crude language" — that's noise.
-11. Be conservative. When in doubt, return fewer items.
-12. Maximum 5 memories per call. Quality over quantity. Returning 0 is fine.
+2. Content must be a self-contained sentence the bot can later READ and ACT on. Bad: "she mentioned a movie". Good: "She loves the Batman films, especially the Nolan trilogy."
+3. SKIP if the slice contains nothing new and durable. An empty {"memories": []} is GOOD output — do not fabricate.
+4. Re-read the "Existing memory" block. If a candidate memory is already there (even paraphrased), DO NOT emit it again. Dedup aggressively.
+5. Do NOT extract: greetings, individual emoji, single-word reactions, swearing, sexual talk, casual jokes, moods of the moment, sentence fragments. Only durable signal.
+6. "fact" = permanent reality (job, family, city, pet, birthday, hobbies, tastes, fandom, dietary habits). FAVOR these — they're the most useful for sounding like you know them.
+7. "preference" = stable communication preference (language, message length, emoji policy, pet names they like/hate). Not one-off requests.
+8. "promise" = a real commitment with a fulfilment criterion.
+9. "event" = a real scheduled occurrence (interview Tuesday, trip next month). expires_at = unix timestamp of event + 7 days.
+10. "inside_joke" = a recurring callback that appears MULTIPLE times across the slice.
+11. "open_thread" = a real unresolved topic the contact cares about and might bring up again. Not "the user uses crude language" — that's noise.
+12. Don't be precious. If you see ANY durable signal, capture it. Worse to forget than to over-capture (dedup runs after you).
+13. Maximum 6 memories per call.
 """
 
 STYLE_SYSTEM = """Analyze how the OWNER writes to this contact. Return STRICT JSON:
@@ -50,17 +51,41 @@ No prose, no markdown fences.
 """
 
 
+_KIND_HEADERS: tuple[tuple[str, str], ...] = (
+    ("fact", "Facts about them"),
+    ("preference", "How they like to be talked to"),
+    ("inside_joke", "Inside jokes / recurring callbacks"),
+    ("open_thread", "Open threads (unresolved topics they care about — follow up if relevant)"),
+    ("promise", "Promises made to them (don't forget)"),
+    ("event", "Upcoming / recent events"),
+)
+
+
 async def render_memory_block(conn_id: str, chat_id: int) -> str | None:
-    """Format active memory rows into a compact block for system-prompt injection."""
+    """Format active memory rows into a system-prompt block, grouped by kind.
+    Grouping helps the reply model treat facts as facts, threads as threads, etc.
+    """
     rows = await db.list_memory(conn_id=conn_id, chat_id=chat_id)
     if not rows:
         return None
-    # priority order
-    order = {"fact": 0, "preference": 1, "inside_joke": 2, "promise": 3, "open_thread": 4, "event": 5}
-    rows.sort(key=lambda r: (order.get(r["kind"], 99), -r["created_at"]))
-    # Gemini 3 Flash has a 1M context — be generous, the main reply model can absorb it.
-    lines = [f"- [{r['kind']}] {r['content']}" for r in rows[:200]]
-    return "\n".join(lines)
+    by_kind: dict[str, list[dict]] = {}
+    for r in rows:
+        by_kind.setdefault(r["kind"], []).append(r)
+    # Newest first inside each bucket so recent context surfaces first.
+    for bucket in by_kind.values():
+        bucket.sort(key=lambda r: -r["created_at"])
+    sections: list[str] = []
+    for kind, header in _KIND_HEADERS:
+        bucket = by_kind.pop(kind, None)
+        if not bucket:
+            continue
+        lines = [f"- {r['content']}" for r in bucket[:50]]
+        sections.append(f"### {header}\n" + "\n".join(lines))
+    # Any unknown kind (forward-compat) goes at the bottom under its raw name.
+    for kind, bucket in by_kind.items():
+        lines = [f"- {r['content']}" for r in bucket[:50]]
+        sections.append(f"### {kind.title()}\n" + "\n".join(lines))
+    return "\n\n".join(sections) if sections else None
 
 
 async def enqueue_if_due(conn_id: str, chat_id: int) -> None:
@@ -68,7 +93,7 @@ async def enqueue_if_due(conn_id: str, chat_id: int) -> None:
     await db.enqueue(conn_id=conn_id, chat_id=chat_id)
 
 
-MIN_NEW_MESSAGES_FOR_EXTRACTION = 10
+MIN_NEW_MESSAGES_FOR_EXTRACTION = 5
 
 
 async def _extract_for_chat(conn_id: str, chat_id: int) -> None:
@@ -112,7 +137,7 @@ async def _extract_for_chat(conn_id: str, chat_id: int) -> None:
         raw = (resp.choices[0].message.content or "").strip()
         parsed = json.loads(raw)
         added = 0
-        for m in parsed.get("memories", [])[:5]:
+        for m in parsed.get("memories", [])[:6]:
             kind = m.get("kind")
             content = m.get("content")
             expires = m.get("expires_at")

@@ -37,14 +37,11 @@ _TG_MSG_LIMIT = 3800
 
 
 def _split_for_tg(text: str, limit: int = _TG_MSG_LIMIT) -> list[str]:
-    """Split a long string into Telegram-safe chunks. Prefers line boundaries,
-    falls back to hard slices for single oversize lines."""
     if len(text) <= limit:
         return [text]
     chunks: list[str] = []
     buf = ""
     for line in text.split("\n"):
-        # Single line longer than limit — hard-slice it.
         if len(line) > limit:
             if buf:
                 chunks.append(buf)
@@ -88,10 +85,16 @@ def _parse_int(s: str) -> int | None:
         return None
 
 
+def _strip_quotes(s: str) -> str:
+    s = s.strip()
+    if len(s) >= 2 and s[0] in '"“«\'' and s[-1] in '"”»\'':
+        return s[1:-1].strip()
+    return s
+
+
 VALID_RELATIONSHIPS = {
     "gf", "bff", "close_friend", "friend", "family", "work", "acquaintance", "unknown",
 }
-VALID_REACT_MODES = {"auto", "manual", "off"}
 
 
 # ---------------------------------------------------------------------------
@@ -99,22 +102,50 @@ VALID_REACT_MODES = {"auto", "manual", "off"}
 # ---------------------------------------------------------------------------
 
 
-async def on_pause(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+async def on_pause(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """No arg → global pause. With chat_id → per-chat pause."""
+    if not _is_owner(update):
         return
-    await db.set_state_bool("paused", True)
-    await _reply(update, "🛑 Bot paused globally.")
+    args = ctx.args or []
+    if not args:
+        await db.set_state_bool("paused", True)
+        await _reply(update, "🛑 Bot paused globally.")
+        return
+    chat_id = _parse_int(args[0])
+    if chat_id is None:
+        await _reply(update, "usage: /pause [chat_id]")
+        return
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await _reply(update, "no active business connection")
+        return
+    await db.set_paused(conn_id=conn_id, chat_id=chat_id, paused=True)
+    await _reply(update, f"🛑 paused chat {chat_id}")
 
 
-async def on_resume(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+async def on_resume(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """No arg → global resume. With chat_id → per-chat resume."""
+    if not _is_owner(update):
         return
-    await db.set_state_bool("paused", False)
-    await _reply(update, "▶️ Bot resumed.")
+    args = ctx.args or []
+    if not args:
+        await db.set_state_bool("paused", False)
+        await _reply(update, "▶️ Bot resumed.")
+        return
+    chat_id = _parse_int(args[0])
+    if chat_id is None:
+        await _reply(update, "usage: /resume [chat_id]")
+        return
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await _reply(update, "no active business connection")
+        return
+    await db.set_paused(conn_id=conn_id, chat_id=chat_id, paused=False)
+    await _reply(update, f"▶️ resumed chat {chat_id}")
 
 
 async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     paused = await db.get_state_bool("paused", False)
     approval = await db.get_state_bool("approval_mode", False)
@@ -156,7 +187,7 @@ async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_stats(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     conn = db._db()
     now = int(time.time())
@@ -181,7 +212,6 @@ async def on_stats(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
     replies_week = _count(await cur.fetchone())
 
-    # Approximate aborts: user msg with no via_bot=1 assistant reply within 5 min.
     cur = await conn.execute(
         """
         SELECT COUNT(*) AS n FROM messages u
@@ -206,7 +236,7 @@ async def on_stats(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_last(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     n = 5
     if ctx.args:
@@ -238,44 +268,9 @@ async def on_last(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def on_pause_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
-        return
-    if not ctx.args:
-        await _reply(update, "usage: /pause_chat <chat_id>")
-        return
-    chat_id = _parse_int(ctx.args[0])
-    if chat_id is None:
-        await _reply(update, "invalid chat_id")
-        return
-    conn_id = await _active_conn_id()
-    if conn_id is None:
-        await _reply(update, "no active business connection")
-        return
-    await db.set_paused(conn_id=conn_id, chat_id=chat_id, paused=True)
-    await _reply(update, f"paused chat {chat_id}")
-
-
-async def on_resume_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
-        return
-    if not ctx.args:
-        await _reply(update, "usage: /resume_chat <chat_id>")
-        return
-    chat_id = _parse_int(ctx.args[0])
-    if chat_id is None:
-        await _reply(update, "invalid chat_id")
-        return
-    conn_id = await _active_conn_id()
-    if conn_id is None:
-        await _reply(update, "no active business connection")
-        return
-    await db.set_paused(conn_id=conn_id, chat_id=chat_id, paused=False)
-    await _reply(update, f"resumed chat {chat_id}")
-
-
 async def on_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    """Set the persona_extra note for this chat. Overwrites previous note."""
+    if not _is_owner(update):
         return
     if len(ctx.args) < 2:
         await _reply(update, "usage: /note <chat_id> <text>")
@@ -284,7 +279,7 @@ async def on_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if chat_id is None:
         await _reply(update, "invalid chat_id")
         return
-    text = " ".join(ctx.args[1:])
+    text = _strip_quotes(" ".join(ctx.args[1:]))
     conn_id = await _active_conn_id()
     if conn_id is None:
         await _reply(update, "no active business connection")
@@ -293,8 +288,44 @@ async def on_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"note set for chat {chat_id}")
 
 
+async def on_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a fact / instruction about a contact. Stacks (one row per call).
+    Examples:
+        /prompt 4838282 hanie loves dc comics
+        /prompt 4838282 "always reply to her in Persian"
+    Stored in contact_memory with kind=fact; rendered in the system prompt under
+    "What you know about them".
+    """
+    if not _is_owner(update):
+        return
+    args = ctx.args or []
+    if len(args) < 2:
+        await _reply(
+            update,
+            'usage: /prompt <chat_id> <fact about them>\n'
+            'e.g.  /prompt 4838282 hanie loves dc comics',
+        )
+        return
+    chat_id = _parse_int(args[0])
+    if chat_id is None:
+        await _reply(update, "invalid chat_id")
+        return
+    text = _strip_quotes(" ".join(args[1:]))
+    if not text:
+        await _reply(update, "empty fact")
+        return
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await _reply(update, "no active business connection")
+        return
+    mem_id = await db.add_memory(
+        conn_id=conn_id, chat_id=chat_id, kind="fact", content=text
+    )
+    await _reply(update, f"✅ saved #{mem_id} for chat {chat_id}: {text}")
+
+
 async def on_preview(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if not ctx.args:
         await _reply(update, "usage: /preview <text>")
@@ -313,7 +344,7 @@ async def on_preview(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if not ctx.args or ctx.args[0].lower() not in ("on", "off"):
         await _reply(update, "usage: /approval on|off")
@@ -324,7 +355,7 @@ async def on_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_quiet(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if not ctx.args:
         await _reply(update, "usage: /quiet HH:MM HH:MM | /quiet off")
@@ -349,7 +380,7 @@ async def on_quiet(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if len(ctx.args) < 2:
         await _reply(update, "usage: /who <chat_id> <relationship> [nickname]")
@@ -374,7 +405,7 @@ async def on_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_memory(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if not ctx.args:
         await _reply(update, "usage: /memory <chat_id>")
@@ -396,7 +427,7 @@ async def on_memory(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_forget(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if not ctx.args:
         await _reply(update, "usage: /forget <memory_id>")
@@ -409,39 +440,8 @@ async def on_forget(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"forgot memory #{mem_id}")
 
 
-async def on_remember(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
-        return
-    if len(ctx.args) < 3:
-        await _reply(update, "usage: /remember <chat_id> <kind> <text>")
-        return
-    chat_id = _parse_int(ctx.args[0])
-    if chat_id is None:
-        await _reply(update, "invalid chat_id")
-        return
-    kind = ctx.args[1]
-    text = " ".join(ctx.args[2:])
-    conn_id = await _active_conn_id()
-    if conn_id is None:
-        await _reply(update, "no active business connection")
-        return
-    mem_id = await db.add_memory(conn_id=conn_id, chat_id=chat_id, kind=kind, content=text)
-    await _reply(update, f"remembered #{mem_id} [{kind}] for chat {chat_id}")
-
-
-async def on_react_mode(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
-        return
-    if not ctx.args or ctx.args[0].lower() not in VALID_REACT_MODES:
-        await _reply(update, "usage: /react_mode auto|manual|off")
-        return
-    val = ctx.args[0].lower()
-    await db.set_state("react_mode", val)
-    await _reply(update, f"react_mode: {val}")
-
-
 async def on_innercircle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     if not ctx.args or ctx.args[0].lower() not in ("on", "off"):
         await _reply(update, "usage: /innercircle on|off")
@@ -451,39 +451,26 @@ async def on_innercircle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await _reply(update, f"innercircle_gate: {val}")
 
 
-async def on_persona_for(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+async def on_persona(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show resolved system prompt + path to the per-contact .txt file."""
+    if not _is_owner(update):
         return
     if not ctx.args:
-        await _reply(update, "usage: /persona_for <chat_id>")
+        await _reply(update, "usage: /persona <chat_id>")
         return
     chat_id = _parse_int(ctx.args[0])
     if chat_id is None:
         await _reply(update, "invalid chat_id")
         return
-    conn_id = await _active_conn_id()
-    try:
-        prompt = load_system_prompt(conn_id=conn_id, chat_id=chat_id)  # type: ignore[call-arg]
-    except TypeError:
-        prompt = load_system_prompt()
+    prompts_dir = getattr(settings, "prompts_dir", None) or Path("./prompts")
+    contact_path = Path(prompts_dir).absolute() / "contacts" / f"{chat_id}.txt"
+    prompt = load_system_prompt(chat_id=chat_id)
     if len(prompt) > 3500:
         prompt = prompt[:3500] + "\n…[truncated]"
-    await _reply(update, prompt)
-
-
-async def on_persona_path(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
-        return
-    if not ctx.args:
-        await _reply(update, "usage: /persona_path <chat_id>")
-        return
-    chat_id = _parse_int(ctx.args[0])
-    if chat_id is None:
-        await _reply(update, "invalid chat_id")
-        return
-    from pathlib import Path
-    prompts_dir = getattr(settings, "prompts_dir", None) or Path("./prompts")
-    await _reply(update, f"{prompts_dir.absolute()}/contacts/{chat_id}.txt")
+    await _reply(
+        update,
+        f"📄 per-contact file: {contact_path}\n\n--- resolved prompt ---\n{prompt}",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +479,6 @@ async def on_persona_path(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 def _extract_pending_id(text: str) -> int | None:
-    # text like "/approve_42" or "/edit_42 new text"
     head = text.split(None, 1)[0]
     _, _, num = head.partition("_")
     return _parse_int(num)
@@ -510,7 +496,7 @@ async def _record_sent(pending: dict[str, Any], text: str, sent_msg_id: int | No
 
 
 async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     msg = update.effective_message
     if msg is None or not msg.text:
@@ -540,7 +526,7 @@ async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     msg = update.effective_message
     if msg is None or not msg.text:
@@ -575,7 +561,7 @@ async def on_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_skip(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
+    if not _is_owner(update):
         return
     msg = update.effective_message
     if msg is None or not msg.text:
@@ -592,7 +578,7 @@ async def on_skip(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------------------
-# registration
+# /help
 # ---------------------------------------------------------------------------
 
 
@@ -600,35 +586,34 @@ HELP_TEXT = """\
 Owner commands:
 
 State:
- /pause /resume — global mute toggle
+ /pause [chat_id] · /resume [chat_id] — no arg = global, with id = per-chat
  /status — current settings + counts
- /stats — reply counts (today/week)
+ /stats — reply counts (today / week)
  /last [N] — last N bot replies
 
-Per-chat:
- /pause_chat <chat_id> · /resume_chat <chat_id>
+Contacts:
  /who <chat_id> <relationship> [nickname]
- /note <chat_id> <text> — appended persona note
- /forget_chat <chat_id> — purge stored messages for that chat
+ /contacts — list tagged contacts
+ /senders [N] — recent inbound chats (incl. untagged)
+ /find <query> — search nicknames + names
 
-Persona / prompts:
- /persona_for <chat_id> — show resolved system prompt
- /persona_path <chat_id> — path to per-contact .txt
- /reload_prompts — re-read .txt files (clears mtime cache)
+Memory (what the bot knows about a person):
+ /prompt <chat_id> <fact> — add a fact (stacks). e.g. /prompt 123 "hanie loves dc comics"
+ /note <chat_id> <text> — set a free-form persona note (overwrites)
+ /memory <chat_id> — list stored memory rows
+ /forget <memory_id> — drop one memory row
+ /extract <chat_id> — force memory extraction now
+ /style <chat_id> — show owner-style fingerprint
+ /purge <chat_id> | all — wipe memory for that chat (rebuilds from scratch)
+ /wipe <chat_id> — purge ALL data for chat (messages + memory + summary)
 
-Memory:
- /memory <chat_id> — list rows
- /remember <chat_id> <kind> <text> — manual add
- /forget <memory_id> — soft-delete
- /extract <chat_id> — force extraction now
- /style <chat_id> — show style fingerprint JSON
- /memory_cleanup <chat_id> | all — retroactively dedupe memory rows
- /memory_purge <chat_id> | all — wipe all memory rows + reset extraction (rebuilds clean)
+Persona files:
+ /persona <chat_id> — show resolved system prompt + file path
+ /reload — re-read all .txt prompts from disk
 
 Modes:
  /approval on|off — HITL gate
  /innercircle on|off — gf/family/bff safety gate
- /react_mode auto|manual|off
  /voice on|off — voice transcription toggle
  /quiet HH:MM HH:MM | off — quiet hours
 
@@ -638,13 +623,10 @@ Tuning (live, no restart):
  /cooldown [seconds] — owner-active mute window (default 600)
 
 Tools:
- /preview <text> — dry-run draft, no send
- /contacts — list every tagged chat
- /senders [N] — last N chats that messaged you (incl. UNTAGGED)
- /find <query> — search nicknames + connections
- /say <chat_id> <text> — send as bot manually
- /pending — list outstanding HITL drafts
- /backup — copy secretary.db to timestamped file
+ /preview <text> — dry-run draft
+ /say <chat_id> <text> — send manually as the bot
+ /pending — outstanding HITL drafts
+ /backup — copy secretary.db to a timestamped file
 
 HITL replies (in pending DM):
  /approve_<id>  /edit_<id> <text>  /skip_<id>
@@ -658,12 +640,11 @@ async def on_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------------------
-# extra controls
+# contacts / discovery
 # ---------------------------------------------------------------------------
 
 
 async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """List every chat that has sent you at least one message, tagged or not."""
     if not _is_owner(update):
         return
     n = 20
@@ -704,7 +685,6 @@ async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         nick = r["nickname"]
         full = " ".join(p for p in (r["tg_first_name"], r["tg_last_name"]) if p)
         uname = f"@{r['tg_username']}" if r["tg_username"] else ""
-        # display: prefer nickname, fall back to full name, then username, then ?
         who = nick or full or uname or "?"
         uname_tail = f" ({uname})" if uname and who != uname else ""
         lines.append(
@@ -780,7 +760,6 @@ async def on_find(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_say(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a manual message to a contact via the Business connection, as the bot."""
     if not _is_owner(update):
         return
     args = ctx.args or []
@@ -813,7 +792,7 @@ async def on_say(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"✅ sent to {chat_id} ({len(text)} chars)")
 
 
-async def on_reload_prompts(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+async def on_reload(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update):
         return
     cleared = prompts.clear_cache()
@@ -866,7 +845,7 @@ async def _tune_int(update: Update, ctx: ContextTypes.DEFAULT_TYPE, *, key: str,
         await _reply(update, f"{label} = {eff}s (override: {cur_val or 'none'})")
         return
     if args[0].lower() in ("off", "default", "clear"):
-        await db.set_state(key, "")  # empty = unset
+        await db.set_state(key, "")
         await _reply(update, f"{label} reset to env default ({default}s)")
         return
     n = _parse_int(args[0])
@@ -964,10 +943,9 @@ async def on_style(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"style fingerprint for {chat_id}:\n{sf}")
 
 
-async def on_memory_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Wipe all memory rows for a chat (or all chats). Keeps messages + overrides.
-    Useful when an old over-eager extractor left a garbage pile — new extractor
-    will rebuild from scratch on next conversation."""
+async def on_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Wipe memory rows for a chat (or all chats). Keeps messages + overrides.
+    Extraction will rebuild from messages on the next run."""
     if not _is_owner(update):
         return
     args = ctx.args or []
@@ -984,7 +962,6 @@ async def on_memory_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         row = await cur.fetchone()
         n = int(row["n"]) if row else 0
         await conn.execute("DELETE FROM contact_memory WHERE conn_id = ?", (conn_id,))
-        # Also reset extracted_at so the new extractor re-reads the whole history.
         await conn.execute(
             "UPDATE messages SET extracted_at = NULL WHERE conn_id = ?",
             (conn_id,),
@@ -994,7 +971,7 @@ async def on_memory_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         return
     chat_id = _parse_int(args[0])
     if chat_id is None:
-        await _reply(update, "usage: /memory_purge <chat_id> | all")
+        await _reply(update, "usage: /purge <chat_id> | all")
         return
     cur = await conn.execute(
         "SELECT COUNT(*) AS n FROM contact_memory WHERE conn_id = ? AND chat_id = ?",
@@ -1014,45 +991,13 @@ async def on_memory_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     await _reply(update, f"💣 purged {n} memory rows for chat {chat_id}. extraction will rebuild.")
 
 
-async def on_memory_cleanup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Retroactively dedupe contact_memory rows for one chat (or all)."""
-    if not _is_owner(update):
-        return
-    args = ctx.args or []
-    conn_id = await _active_conn_id()
-    if conn_id is None:
-        await _reply(update, "no active connection")
-        return
-    if not args or args[0] == "all":
-        # Loop every chat that has any memory rows.
-        conn = db._db()
-        cur = await conn.execute(
-            "SELECT DISTINCT chat_id FROM contact_memory WHERE conn_id = ?",
-            (conn_id,),
-        )
-        chat_ids = [r["chat_id"] for r in await cur.fetchall()]
-        if not chat_ids:
-            await _reply(update, "no memory rows to dedupe")
-            return
-        total = 0
-        for cid in chat_ids:
-            total += await db.dedupe_chat_memory(conn_id=conn_id, chat_id=cid)
-        await _reply(update, f"🧹 deduped {total} rows across {len(chat_ids)} chats")
-        return
-    chat_id = _parse_int(args[0])
-    if chat_id is None:
-        await _reply(update, "usage: /memory_cleanup <chat_id> | all")
-        return
-    n = await db.dedupe_chat_memory(conn_id=conn_id, chat_id=chat_id)
-    await _reply(update, f"🧹 deduped {n} memory rows for chat {chat_id}")
-
-
-async def on_forget_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+async def on_wipe(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Purge messages + memory + summary for one chat. Keeps overrides (tag, nickname)."""
     if not _is_owner(update):
         return
     args = ctx.args or []
     if not args:
-        await _reply(update, "usage: /forget_chat <chat_id>  (purges messages + memory for that chat)")
+        await _reply(update, "usage: /wipe <chat_id>  (purges messages + memory + summary for that chat)")
         return
     chat_id = _parse_int(args[0])
     if chat_id is None:
@@ -1095,44 +1040,44 @@ async def on_backup(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 def register(app: Application) -> None:
     app.add_handler(CommandHandler("help", on_help))
+    # state
     app.add_handler(CommandHandler("pause", on_pause))
     app.add_handler(CommandHandler("resume", on_resume))
     app.add_handler(CommandHandler("status", on_status))
     app.add_handler(CommandHandler("stats", on_stats))
     app.add_handler(CommandHandler("last", on_last))
-    app.add_handler(CommandHandler("pause_chat", on_pause_chat))
-    app.add_handler(CommandHandler("resume_chat", on_resume_chat))
-    app.add_handler(CommandHandler("note", on_note))
-    app.add_handler(CommandHandler("preview", on_preview))
-    app.add_handler(CommandHandler("approval", on_approval))
-    app.add_handler(CommandHandler("quiet", on_quiet))
+    # contacts
     app.add_handler(CommandHandler("who", on_who))
-    app.add_handler(CommandHandler("memory", on_memory))
-    app.add_handler(CommandHandler("forget", on_forget))
-    app.add_handler(CommandHandler("remember", on_remember))
-    app.add_handler(CommandHandler("react_mode", on_react_mode))
-    app.add_handler(CommandHandler("innercircle", on_innercircle))
-    app.add_handler(CommandHandler("persona_for", on_persona_for))
-    app.add_handler(CommandHandler("persona_path", on_persona_path))
-
-    # new owner-control commands
     app.add_handler(CommandHandler("contacts", on_contacts))
     app.add_handler(CommandHandler("senders", on_senders))
     app.add_handler(CommandHandler("find", on_find))
-    app.add_handler(CommandHandler("say", on_say))
-    app.add_handler(CommandHandler("reload_prompts", on_reload_prompts))
-    app.add_handler(CommandHandler("pending", on_pending))
+    # memory / facts
+    app.add_handler(CommandHandler("prompt", on_prompt))
+    app.add_handler(CommandHandler("note", on_note))
+    app.add_handler(CommandHandler("memory", on_memory))
+    app.add_handler(CommandHandler("forget", on_forget))
+    app.add_handler(CommandHandler("extract", on_extract))
+    app.add_handler(CommandHandler("style", on_style))
+    app.add_handler(CommandHandler("purge", on_purge))
+    app.add_handler(CommandHandler("wipe", on_wipe))
+    # persona files
+    app.add_handler(CommandHandler("persona", on_persona))
+    app.add_handler(CommandHandler("reload", on_reload))
+    # modes
+    app.add_handler(CommandHandler("approval", on_approval))
+    app.add_handler(CommandHandler("innercircle", on_innercircle))
+    app.add_handler(CommandHandler("voice", on_voice))
+    app.add_handler(CommandHandler("quiet", on_quiet))
+    # tuning
     app.add_handler(CommandHandler("delay", on_delay))
     app.add_handler(CommandHandler("away_delay", on_away_delay))
     app.add_handler(CommandHandler("cooldown", on_cooldown))
-    app.add_handler(CommandHandler("voice", on_voice))
-    app.add_handler(CommandHandler("extract", on_extract))
-    app.add_handler(CommandHandler("style", on_style))
-    app.add_handler(CommandHandler("forget_chat", on_forget_chat))
-    app.add_handler(CommandHandler("memory_cleanup", on_memory_cleanup))
-    app.add_handler(CommandHandler("memory_purge", on_memory_purge))
+    # tools
+    app.add_handler(CommandHandler("preview", on_preview))
+    app.add_handler(CommandHandler("say", on_say))
+    app.add_handler(CommandHandler("pending", on_pending))
     app.add_handler(CommandHandler("backup", on_backup))
-
+    # HITL approval regex
     app.add_handler(MessageHandler(filters.Regex(r"^/approve_\d+$"), on_approve))
     app.add_handler(MessageHandler(filters.Regex(r"^/edit_\d+(\s|$)"), on_edit))
     app.add_handler(MessageHandler(filters.Regex(r"^/skip_\d+$"), on_skip))

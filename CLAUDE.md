@@ -35,7 +35,7 @@ prompts/
 
 1. owner-skip guard (owner-typed messages stored, not replied to)
 2. global pause (`/pause`)
-3. per-chat pause (`/pause_chat`)
+3. per-chat pause (`/pause <chat_id>`)
 4. quiet-hours window (`/quiet`)
 5. owner-active cooldown (`OWNER_ACTIVE_COOLDOWN_SECONDS`, live-tunable via `/cooldown`)
 6. delay: 30s default, 5s in away mode (bot replied last without owner preemption)
@@ -54,12 +54,12 @@ prompts/
 
 All commands are sent to the bot's own DM (not via Business connection). Owner-only — guarded by `update.effective_user.id == settings.owner_user_id`. See `/help` in-bot for the full list. Highlights:
 
-- Tagging: `/who <chat_id> <relationship> [nickname]`, `/contacts`, `/find <query>`
-- Per-chat persona: drop file at `prompts/contacts/<chat_id>.txt`, then `/reload_prompts`; or `/note <chat_id> <text>` for DB-backed addendum.
-- Memory: `/memory <chat_id>`, `/remember`, `/forget`, `/extract <chat_id>`, `/style <chat_id>`
+- Tagging: `/who <chat_id> <relationship> [nickname]`, `/contacts`, `/find <query>`, `/senders [N]`
+- Per-chat persona: drop file at `prompts/contacts/<chat_id>.txt`, then `/reload`; or `/note <chat_id> <text>` for a DB-backed addendum (overwrites).
+- Memory: `/prompt <chat_id> <fact>` (add a stacking fact), `/memory <chat_id>`, `/forget <memory_id>`, `/extract <chat_id>`, `/style <chat_id>`, `/purge <chat_id|all>`
 - HITL: `/approval on|off`, `/innercircle on|off`, `/pending`, `/approve_<id>`, `/edit_<id>`, `/skip_<id>`
 - Live tuning (no restart): `/delay`, `/away_delay`, `/cooldown`, `/voice on|off`
-- Maintenance: `/preview <text>`, `/say <chat_id> <text>`, `/backup`, `/forget_chat <chat_id>`
+- Maintenance: `/preview <text>`, `/say <chat_id> <text>`, `/backup`, `/wipe <chat_id>` (purge messages+memory+summary)
 
 ## Deploy
 
