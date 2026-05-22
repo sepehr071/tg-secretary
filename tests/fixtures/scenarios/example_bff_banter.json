@@ -1,0 +1,19 @@
+{
+  "name": "example_bff_banter",
+  "relationship": "bff",
+  "owner_first_name": "Sepehr",
+  "persona_extra": null,
+  "style_fingerprint": "{\"avg_length\": 8, \"formality\": \"casual\", \"emoji_freq\": \"none\", \"languages\": [\"fa\", \"en\"], \"pet_names\": [\"داداش\"], \"signature_open\": \"\", \"signature_close\": \"\"}",
+  "memory": [
+    {"kind": "inside_joke", "content": "They have a running joke about Reza being late to everything"},
+    {"kind": "fact", "content": "Best friend since university; works in backend dev at a Tehran startup"}
+  ],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "داداش بازی فردا میای؟"},
+    {"role": "assistant", "content": "میام. ساعت چند؟"},
+    {"role": "user", "content": "هشت. رضا هم میاد فک کنم"}
+  ],
+  "contact_message": "البته رضا که همیشه نیم ساعت دیر میاد خخخ",
+  "notes_for_judge": "Pure banter with the bff, callback to a known inside joke (Reza being late). Bot should play along — a short witty one-liner curse-back or amplifier works ('بزرگ شده دیگه نمیتونه عوض شه' or similar). No markdown, no labels, no defer, no corporate opener."
+}

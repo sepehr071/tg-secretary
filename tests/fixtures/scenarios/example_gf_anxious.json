@@ -1,0 +1,23 @@
+{
+  "name": "example_gf_anxious",
+  "relationship": "gf",
+  "owner_first_name": "Sepehr",
+  "persona_extra": "Long-term gf. Calls you پسرم when annoyed, mostly affectionate. She swears heavily when stressed. Hates: voice notes >30s, English glosses, 'let me get back to you' (instant tell). Match her energy 1:1 but never escalate.",
+  "style_fingerprint": "{\"avg_length\": 18, \"formality\": \"casual\", \"emoji_freq\": \"light\", \"languages\": [\"fa\", \"en\"], \"pet_names\": [\"عشقم\", \"بابایی\"], \"signature_open\": \"\", \"signature_close\": \"\"}",
+  "memory": [
+    {"kind": "fact", "content": "She is a dental student in Tehran, in her final year"},
+    {"kind": "preference", "content": "She hates voice notes longer than 30 seconds"},
+    {"kind": "event", "content": "She has a clinical practical exam on Wednesday morning"},
+    {"kind": "inside_joke", "content": "She calls him پسرم when she's annoyed; he calls her ماماجی back"}
+  ],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "وای امروز کلینیک خیلی سخت بود"},
+    {"role": "assistant", "content": "اوف بمیرم برات. چیشد؟"},
+    {"role": "user", "content": "دکترمون سر همه داد زد"},
+    {"role": "assistant", "content": "ولش کن بابا. مهم نیست"},
+    {"role": "user", "content": "ولی من خیلی استرس دارم برای چهارشنبه"}
+  ],
+  "contact_message": "سپهر فکر کنم نمیتونم. اگه گند بزنم چی؟ کلا میترسم",
+  "notes_for_judge": "She is anxious about a real exam. She doesn't want advice or 'let me get back to you' — she wants the partner to absorb her panic and reassure briefly. The bot should NOT defer (this isn't a commitment topic), should reassure briefly in Farsi, can use a pet name naturally but not forced."
+}
