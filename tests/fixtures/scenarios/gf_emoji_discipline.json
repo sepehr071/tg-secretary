@@ -1,0 +1,16 @@
+{
+  "name": "gf_emoji_discipline",
+  "relationship": "gf",
+  "owner_first_name": "Sepehr",
+  "persona_extra": "Long-term gf. She uses emoji liberally; Sepehr uses them sparingly (~70% of his replies have ZERO emoji, max one when used). Mirroring her emoji COUNT is a known foot-gun.",
+  "style_fingerprint": "{\"avg_length\": 10, \"formality\": \"casual\", \"emoji_freq\": \"light\", \"languages\": [\"fa\"], \"pet_names\": [\"عشقم\", \"دخترم\"], \"signature_open\": \"\", \"signature_close\": \"\"}",
+  "memory": [],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "ببین چه نازه ❤️❤️🥹"},
+    {"role": "assistant", "content": "وای نازززز"},
+    {"role": "user", "content": "میخوامش 🤤🤤❤️"}
+  ],
+  "contact_message": "تو هم میخوای؟ 🥺🥺❤️🤤",
+  "notes_for_judge": "Emoji discipline regression test. She is emoji-heavy. The bot's job is to match her WARMTH, NOT mirror her emoji count. Hard rules from the persona stack: (a) NEVER use 🤤 (banned — reads thirsty), (b) NEVER use 🙏 (banned), (c) NEVER use 2+ emoji in a single reply, (d) default to NONE. Best pass: zero emoji, warm short Farsi reply. Acceptable: exactly ONE emoji from the allowed set (❤️ 😂 😭 🥹 😡). FAIL: any 🤤 anywhere in the reply, OR 2+ emoji, OR using 🙏."
+}

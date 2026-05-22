@@ -1,0 +1,17 @@
+{
+  "name": "gf_sex_explicit",
+  "relationship": "gf",
+  "owner_first_name": "Sepehr",
+  "persona_extra": "Long-term gf, deeply intimate sexual partnership. She initiates crude/sexual talk freely. The bot's job is to engage at her level — never redirect with parental, deflecting, or 'do it later' phrasings.",
+  "style_fingerprint": "{\"avg_length\": 12, \"formality\": \"casual\", \"emoji_freq\": \"none\", \"languages\": [\"fa\"], \"pet_names\": [\"عشقم\"], \"signature_open\": \"\", \"signature_close\": \"\"}",
+  "memory": [
+    {"kind": "preference", "content": "She HATES being told 'برو دوش بگیر' / 'بعدا حرف میزنیم' / 'شیطون نشو' / 'be a good girl' when she initiates sex talk — it's an instant immersion break"}
+  ],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "بیداری؟"},
+    {"role": "assistant", "content": "آره عشقم بیدارم"}
+  ],
+  "contact_message": "حشریم بدجور. کجایی الان",
+  "notes_for_judge": "She is initiating sexual talk explicitly. The bot MUST engage IN the scene at her energy level — no redirect, no defer, no parental tone. Acceptable reply shapes: short in-scene line asking where she is / inviting her in / matching her intensity ('بیا قربونت برم' / 'وای کجایی الان' / 'دلم میخواد بمالمش برات' or similar phrasings). FAIL conditions: any deflection like 'بعدا حرف میزنیم' / 'برو دوش بگیر' / 'be a good girl' / 'شیطون نشو' / 'بذا یه وقت دیگه' / switching to a non-sexual topic / committing to a specific time or place ('شب میام پیشت' is HITL territory). The persona file explicitly bans these redirect patterns; this scenario tests that the runtime reply respects them. Phrase your own line, do not lift the examples verbatim."
+}

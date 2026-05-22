@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
-import os
 import re
 import sys
 import time
@@ -74,10 +74,17 @@ class Scenario:
     @classmethod
     def from_json(cls, path: Path) -> "Scenario":
         data = json.loads(path.read_text(encoding="utf-8"))
+        owner = data.get("owner_first_name")
+        if not owner or not str(owner).strip():
+            raise ValueError(
+                f"{path.name}: missing 'owner_first_name'. Persona prompts use "
+                f"this everywhere; a missing value silently leaks 'the owner' "
+                f"into the assembled prompt."
+            )
         return cls(
             name=data.get("name") or path.stem,
             relationship=data["relationship"],
-            owner_first_name=data.get("owner_first_name", "the owner"),
+            owner_first_name=str(owner).strip(),
             persona_extra=data.get("persona_extra"),
             style_fingerprint=data.get("style_fingerprint"),
             memory=data.get("memory") or [],
@@ -89,9 +96,10 @@ class Scenario:
         )
 
     def fake_chat_id(self) -> int:
-        # Stable, large, won't collide with real chat IDs or existing
-        # prompts/contacts/<chat_id>.txt files.
-        return 900_000_000 + (abs(hash(self.name)) % 100_000_000)
+        # Stable across runs (hashlib, not Python's randomized hash) and large
+        # enough to skip real chat IDs and any existing prompts/contacts/<id>.txt.
+        digest = hashlib.sha256(self.name.encode("utf-8")).hexdigest()
+        return 900_000_000 + (int(digest[:8], 16) % 100_000_000)
 
 
 def load_rubric(relationship: str) -> dict[str, Any]:
@@ -134,19 +142,14 @@ async def _seed_db(scenario: Scenario, chat_id: int) -> None:
             summarized_up_to_msg_id=0,
         )
 
-    # History rows go directly into messages — `db.append_message` would do but
-    # it bumps `created_at` to now() for every row and we want chronological order.
-    base_ts = int(time.time()) - 3600
-    for i, h in enumerate(scenario.history):
+    # load_history orders by id, so chronological order == insertion order here.
+    for h in scenario.history:
         await db.append_message(
             conn_id=TEST_CONN_ID,
             chat_id=chat_id,
             role=h["role"],
             content=h["content"],
         )
-        # Best-effort backdate so history sorts oldest-first.
-        # (load_history uses id-ordering, so insertion order is what counts.)
-        _ = base_ts + i  # noqa: F841 — kept for clarity, ordering is fine via id
 
 
 # ---------------------------------------------------------------------------
@@ -215,13 +218,22 @@ def _judge_user_payload(scenario: Scenario, reply: str, rubric: dict[str, Any]) 
     )
 
 
+_JUDGE_CALL_TIMEOUT_S = 180.0
+
+
 async def judge_reply(
     scenario: Scenario,
     reply: str,
     rubric: dict[str, Any],
     judge_model: str,
 ) -> dict[str, Any]:
-    """Send the scenario + reply to the judge model. Returns the parsed verdict."""
+    """Send the scenario + reply to the judge model. Returns the parsed verdict.
+
+    Always requests JSON mode and uses a generous timeout — Sonnet judges sometimes
+    take 60-90s and OpenRouter's default 60s timeout was killing runs. Retries once
+    on either a timeout or a JSON-parse failure (e.g. judge prefixed the reply with
+    a stray sentence, which response_format usually but not always prevents).
+    """
     judge_system = JUDGE_PROMPT_FILE.read_text(encoding="utf-8").replace(
         "{owner_first_name}", scenario.owner_first_name
     )
@@ -231,40 +243,51 @@ async def judge_reply(
         {"role": "user", "content": payload},
     ]
 
-    async def _call(force_json: bool) -> str:
-        kwargs: dict[str, Any] = {
-            "model": judge_model,
-            "messages": messages,
-            "temperature": 0.0,
-            "max_tokens": 1500,
-            "extra_body": {"reasoning": {"effort": "minimal", "exclude": True}},
-        }
-        if force_json:
-            kwargs["response_format"] = {"type": "json_object"}
-        resp = await llm.client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+    async def _call() -> str:
+        # max_tokens=4000 (up from 1500): Sonnet's hidden reasoning shares the
+        # same budget as visible output even with reasoning.exclude=true, so a
+        # tight cap silently truncates the JSON. The judge response itself is
+        # ~600-1000 tokens; the extra headroom absorbs any reasoning Sonnet
+        # decides to do at temperature=0.0.
+        # No `extra_body.reasoning` — for a rubric-application task the judge
+        # doesn't need thinking, and the empty/truncated responses we kept
+        # seeing came from reasoning eating the visible-output budget.
+        resp = await llm.client.chat.completions.create(
+            model=judge_model,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=0.0,
+            max_tokens=4000,
+            response_format={"type": "json_object"},
+            timeout=_JUDGE_CALL_TIMEOUT_S,
+        )
         return resp.choices[0].message.content or ""
 
-    raw = await _call(force_json=False)
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        # Retry once with strict JSON mode.
-        raw = await _call(force_json=True)
-        return json.loads(raw)
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            raw = await _call()
+            return json.loads(raw)
+        except Exception as e:  # noqa: BLE001 — OpenRouter raises a grab-bag of exception types
+            last_err = e
+            if attempt == 0:
+                continue
+            raise
+    raise last_err or RuntimeError("judge call failed")
 
 
 def verdict_passes(judge: dict[str, Any], rubric: dict[str, Any]) -> bool:
+    """Recompute verdict locally — never trust the judge's own boolean.
+
+    Verdict = no red flags AND weighted_avg >= threshold AND every dim >= its min.
+    """
     if judge.get("red_flags_hit"):
         return False
-    if not judge.get("pass", False):
-        # Allow the judge's own boolean to gate, but also recompute as a safety check.
-        pass
-    weighted = float(judge.get("weighted_avg", 0))
+    weighted = float(judge.get("weighted_avg") or 0)
     if weighted < float(rubric["pass_threshold"]):
         return False
-    scores = judge.get("scores", {})
+    scores = judge.get("scores") or {}
     for dim, cfg in rubric["scoring_dimensions"].items():
-        if float(scores.get(dim, 0)) < float(cfg["min"]):
+        if float(scores.get(dim) or 0) < float(cfg["min"]):
             return False
     return True
 
@@ -362,6 +385,7 @@ async def run_scenario(
     structural_issues: list[str] = []
     judge: dict[str, Any] | None = None
 
+    system_prompt = ""
     try:
         await db.init_db()
         await _seed_db(scenario, chat_id)
@@ -390,10 +414,12 @@ async def run_scenario(
 
         if not no_judge:
             rubric = load_rubric(scenario.relationship)
-            judge = await judge_reply(scenario, reply, rubric, judge_model)
-
-        if save_snapshots:
-            write_snapshot(scenario, system_prompt, reply, judge)
+            try:
+                judge = await judge_reply(scenario, reply, rubric, judge_model)
+            except Exception as e:
+                # Don't kill the whole scenario for a judge-call infra failure;
+                # the reply itself is the most expensive artifact and worth keeping.
+                error = f"judge_call: {type(e).__name__}: {e}"
 
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
@@ -406,6 +432,14 @@ async def run_scenario(
             p = Path(str(tmp_db_path) + suffix)
             if p.exists():
                 p.unlink()
+
+    # Snapshot AFTER db cleanup so a successful reply is always captured even
+    # when the judge call later blew up (judge errors are already absorbed above).
+    if save_snapshots and reply:
+        try:
+            write_snapshot(scenario, system_prompt, reply, judge)
+        except Exception as e:
+            print(f"WARN: snapshot write failed for {scenario.name}: {e}", file=sys.stderr)
 
     # Decide pass/fail.
     if error:
@@ -450,10 +484,12 @@ def print_result(r: Result, verbose: bool) -> None:
     if r.structural_issues:
         print(f"  structural: {r.structural_issues}")
     if r.judge:
-        scores = r.judge.get("scores", {})
+        scores = r.judge.get("scores") or {}
         score_str = " ".join(f"{k}={scores[k]}" for k in scores)
         print(f"  scores: {score_str}")
-        print(f"  weighted: {r.judge.get('weighted_avg'):.2f}  "
+        weighted = r.judge.get("weighted_avg")
+        weighted_str = f"{float(weighted):.2f}" if weighted is not None else "n/a"
+        print(f"  weighted: {weighted_str}  "
               f"red={len(r.judge.get('red_flags_hit') or [])}  "
               f"green={len(r.judge.get('green_flags_hit') or [])}")
         if r.judge.get("red_flags_hit"):

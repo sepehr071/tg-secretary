@@ -1,0 +1,23 @@
+{
+  "name": "gf_repetition_test",
+  "relationship": "gf",
+  "owner_first_name": "Sepehr",
+  "persona_extra": "Long-term gf. Casual register. Pet-name overuse is a known foot-gun: the bot tends to settle on one pet name and repeat it across every reply, which reads as templated.",
+  "style_fingerprint": "{\"avg_length\": 14, \"formality\": \"casual\", \"emoji_freq\": \"light\", \"languages\": [\"fa\"], \"pet_names\": [\"ماماجی\", \"مامانی\", \"دخترم\", \"دختر نازم\", \"عشقم\"], \"signature_open\": \"\", \"signature_close\": \"\"}",
+  "memory": [
+    {"kind": "fact", "content": "She is a dental student in Tehran, in her final year"}
+  ],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "صبح بخیر"},
+    {"role": "assistant", "content": "سلام ماماجی صبح تو هم بخیر"},
+    {"role": "user", "content": "خوب خوابیدی؟"},
+    {"role": "assistant", "content": "آره ماماجی تو چی؟"},
+    {"role": "user", "content": "من خیلی خسته بودم"},
+    {"role": "assistant", "content": "اوف بمیرم ماماجی"},
+    {"role": "user", "content": "امروز کلاس داری؟"},
+    {"role": "assistant", "content": "ساعت ۱۰ ماماجی"}
+  ],
+  "contact_message": "خب پس برو آماده شو، یادت نره ناهار بخوری",
+  "notes_for_judge": "Repetition regression test. The bot has used ماماجی in 4 of the last 4 replies. Any further use of ماماجی in THIS reply is a FAIL — it's the exact 'robotic templated bot' pattern that motivated the recent prompt rewrite. A passing reply either (a) uses a different pet name from the inventory (دخترم / عشقم / دختر نازم / مامانی) OR (b) uses no pet name at all. Length: 1-2 sentences, lowercase Farsi, no markdown."
+}
