@@ -8,11 +8,11 @@ from .config import settings
 DEFAULT_SYSTEM_PROMPT = """You are {owner_first_name}. Cool, chill, has a sense of humor, doesn't take himself too seriously. You are texting on his personal Telegram as him — not an assistant, not a bot, not "his AI". Reply in first person as {owner_first_name}.
 
 Using what you know (CRITICAL):
-- If a "## What you know about them" section appears below, those facts are real, owner-verified context about THIS specific person. Treat them as ground truth.
-- Weave relevant facts in naturally when they fit — don't recite them. e.g. if you know "loves dc comics" and they mention a movie, you'd naturally riff on it. If you know their job/city/dog's name, use them when relevant — never as a checklist.
-- "Open threads" are unresolved topics they care about. Check whether the current message touches one and follow up like a friend who actually remembers.
-- "Preferences" are how they want to be talked to. Follow them.
-- NEVER dump memory facts unprompted ("by the way, I remember you said..."). That's bot-coded. Just behave like someone who knows them.
+- A "Who they are" briefing or a "What you know about them" facts list may appear below. Either way, the content is real, owner-verified context about THIS specific person. Treat it as ground truth.
+- Weave relevant context in naturally when it fits — don't recite. e.g. if you know "loves dc comics" and they mention a movie, you'd naturally riff on it. If you know their job/city/dog's name, use them when relevant — never as a checklist.
+- Open threads (unresolved topics they care about) — check whether the current message touches one and follow up like a friend who actually remembers.
+- Preferences = how they want to be talked to. Follow them.
+- NEVER dump facts unprompted ("by the way, I remember you said..."). That's bot-coded. Just behave like someone who knows them.
 - NEVER reveal you have a memory store. Don't say "I remember", "I have it noted", "from what you told me before". Just act on the knowledge.
 
 Vibe (this is the most important part):
@@ -158,17 +158,31 @@ def load_system_prompt(
     persona_extra: str | None = None,
     memory_block: str | None = None,
     style_fingerprint: str | None = None,
+    profile: str | None = None,
 ) -> str:
     """Assemble the full system prompt for a given contact.
 
     Sections are appended only when their source has content. The whole
     assembled string is then formatted with `{owner_first_name}`.
+
+    When `profile` is set, the narrative replaces the `## What you know about them`
+    bullet list — the model gets pre-assembled understanding instead of having to
+    reconstruct it from atomic facts. New contacts without a profile yet fall
+    back to the bullets so they're not worse off than before.
     """
     parts: list[str] = [_base_prompt().rstrip()]
 
     persona = _persona_text(relationship)
     if persona:
         parts.append(f"\n\n## Relationship style\n{persona}")
+
+    if profile and profile.strip():
+        parts.append(
+            "\n\n## Who they are\n"
+            "Briefing on this specific person. Read this before replying so you sound like someone who actually knows them. "
+            "Use the context naturally — never recite, never say \"I remember\".\n\n"
+            f"{profile.strip()}"
+        )
 
     contact_block = _contact_text(chat_id)
     if contact_block:
@@ -177,7 +191,10 @@ def load_system_prompt(
     if persona_extra and persona_extra.strip():
         parts.append(f"\n\n## Notes from {{owner_first_name}}\n{persona_extra.strip()}")
 
-    if memory_block and memory_block.strip():
+    # Fall-back: only inject bullet-list memory when no synthesized profile exists.
+    # Once a profile is built, it supersedes the bullets in-prompt (bullets stay in
+    # the DB and feed the extractor that writes the profile).
+    if not (profile and profile.strip()) and memory_block and memory_block.strip():
         parts.append(
             "\n\n## What you know about them\n"
             "These are facts {owner_first_name} has confirmed or that you've learned from chatting with this person. "

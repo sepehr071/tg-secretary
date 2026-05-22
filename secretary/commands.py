@@ -598,14 +598,15 @@ Contacts:
  /find <query> — search nicknames + names
 
 Memory (what the bot knows about a person):
+ /profile <chat_id> [refresh] — show / rebuild the narrative briefing on this person
  /prompt <chat_id> <fact> — add a fact (stacks). e.g. /prompt 123 "hanie loves dc comics"
  /note <chat_id> <text> — set a free-form persona note (overwrites)
- /memory <chat_id> — list stored memory rows
+ /memory <chat_id> — list stored memory rows (raw facts feeding the profile)
  /forget <memory_id> — drop one memory row
  /extract <chat_id> — force memory extraction now
  /style <chat_id> — show owner-style fingerprint
  /purge <chat_id> | all — wipe memory for that chat (rebuilds from scratch)
- /wipe <chat_id> — purge ALL data for chat (messages + memory + summary)
+ /wipe <chat_id> — purge ALL data for chat (messages + memory + summary + profile)
 
 Persona files:
  /persona <chat_id> — show resolved system prompt + file path
@@ -918,6 +919,53 @@ async def on_extract(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"✅ extraction run for chat {chat_id}. /memory {chat_id} to view.")
 
 
+async def on_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the synthesized per-contact narrative profile.
+    /profile <chat_id>         — view current profile + age.
+    /profile <chat_id> refresh — force regeneration now.
+    """
+    if not _is_owner(update):
+        return
+    args = ctx.args or []
+    if not args:
+        await _reply(update, "usage: /profile <chat_id> [refresh]")
+        return
+    chat_id = _parse_int(args[0])
+    if chat_id is None:
+        await _reply(update, "bad chat_id")
+        return
+    refresh = len(args) > 1 and args[1].lower() == "refresh"
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await _reply(update, "no active connection")
+        return
+    if refresh:
+        await _reply(update, f"⏳ regenerating profile for chat {chat_id}…")
+        new_profile = await memory.maybe_refresh_profile(conn_id, chat_id, force=True)
+        if not new_profile:
+            await _reply(update, "no profile generated (extractor empty or no memory rows)")
+            return
+        await _reply(update, f"✅ profile refreshed ({len(new_profile)} chars):\n\n{new_profile}")
+        return
+    override = await db.get_override(conn_id=conn_id, chat_id=chat_id)
+    profile_text = override.get("profile") if override else None
+    if not profile_text:
+        await _reply(
+            update,
+            f"no profile for chat {chat_id} yet.\n"
+            f"build one with: /profile {chat_id} refresh",
+        )
+        return
+    updated_at = (override.get("profile_updated_at") if override else None) or 0
+    mem_count = (override.get("profile_memory_count_at_update") if override else None) or 0
+    age_days = (int(time.time()) - int(updated_at)) // 86400 if updated_at else None
+    age_label = f"{age_days}d ago" if age_days is not None else "unknown"
+    await _reply(
+        update,
+        f"📄 profile for {chat_id} · built from {mem_count} memories · {age_label}\n\n{profile_text}",
+    )
+
+
 async def on_style(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update):
         return
@@ -966,8 +1014,15 @@ async def on_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             "UPDATE messages SET extracted_at = NULL WHERE conn_id = ?",
             (conn_id,),
         )
+        # Profile was derived from the now-gone memory — clear it so it rebuilds clean.
+        await conn.execute(
+            "UPDATE contact_overrides "
+            "SET profile=NULL, profile_updated_at=NULL, profile_memory_count_at_update=NULL "
+            "WHERE conn_id = ?",
+            (conn_id,),
+        )
         await conn.commit()
-        await _reply(update, f"💣 purged {n} memory rows across all chats. extraction will rebuild.")
+        await _reply(update, f"💣 purged {n} memory rows across all chats. extraction + profile will rebuild.")
         return
     chat_id = _parse_int(args[0])
     if chat_id is None:
@@ -987,8 +1042,14 @@ async def on_purge(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "UPDATE messages SET extracted_at = NULL WHERE conn_id = ? AND chat_id = ?",
         (conn_id, chat_id),
     )
+    await conn.execute(
+        "UPDATE contact_overrides "
+        "SET profile=NULL, profile_updated_at=NULL, profile_memory_count_at_update=NULL "
+        "WHERE conn_id = ? AND chat_id = ?",
+        (conn_id, chat_id),
+    )
     await conn.commit()
-    await _reply(update, f"💣 purged {n} memory rows for chat {chat_id}. extraction will rebuild.")
+    await _reply(update, f"💣 purged {n} memory rows for chat {chat_id}. extraction + profile will rebuild.")
 
 
 async def on_wipe(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1011,8 +1072,16 @@ async def on_wipe(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await conn.execute("DELETE FROM messages WHERE conn_id=? AND chat_id=?", (conn_id, chat_id))
     await conn.execute("DELETE FROM contact_memory WHERE conn_id=? AND chat_id=?", (conn_id, chat_id))
     await conn.execute("DELETE FROM chat_summaries WHERE conn_id=? AND chat_id=?", (conn_id, chat_id))
+    # Clear derived profile too (it was built from the now-gone memory).
+    # Keep relationship/nickname/style — those are owner-curated.
+    await conn.execute(
+        "UPDATE contact_overrides "
+        "SET profile=NULL, profile_updated_at=NULL, profile_memory_count_at_update=NULL "
+        "WHERE conn_id=? AND chat_id=?",
+        (conn_id, chat_id),
+    )
     await conn.commit()
-    await _reply(update, f"🧹 purged messages/memory/summary for chat {chat_id}. overrides kept.")
+    await _reply(update, f"🧹 purged messages/memory/summary/profile for chat {chat_id}. overrides kept.")
 
 
 async def on_backup(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1058,6 +1127,7 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("forget", on_forget))
     app.add_handler(CommandHandler("extract", on_extract))
     app.add_handler(CommandHandler("style", on_style))
+    app.add_handler(CommandHandler("profile", on_profile))
     app.add_handler(CommandHandler("purge", on_purge))
     app.add_handler(CommandHandler("wipe", on_wipe))
     # persona files

@@ -341,6 +341,7 @@ async def _handle_inbound_text(
     relationship = (override.get("relationship") if override else None) or "unknown"
     persona_extra = override.get("persona_extra") if override else None
     style_fingerprint = override.get("style_fingerprint") if override else None
+    profile = override.get("profile") if override else None
     contact_name = (override.get("nickname") if override else None) or _contact_name(msg)
 
     # Inner-circle escalation gate
@@ -370,6 +371,7 @@ async def _handle_inbound_text(
         persona_extra=persona_extra,
         memory_block=memory_block,
         style_fingerprint=style_fingerprint,
+        profile=profile,
     )
 
     if not needs_approval:

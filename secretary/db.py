@@ -105,6 +105,9 @@ MIGRATE_EXTRACTED_AT = "ALTER TABLE messages ADD COLUMN extracted_at INTEGER;"
 MIGRATE_TG_FIRST_NAME = "ALTER TABLE contact_overrides ADD COLUMN tg_first_name TEXT;"
 MIGRATE_TG_LAST_NAME = "ALTER TABLE contact_overrides ADD COLUMN tg_last_name TEXT;"
 MIGRATE_TG_USERNAME = "ALTER TABLE contact_overrides ADD COLUMN tg_username TEXT;"
+MIGRATE_PROFILE = "ALTER TABLE contact_overrides ADD COLUMN profile TEXT;"
+MIGRATE_PROFILE_UPDATED_AT = "ALTER TABLE contact_overrides ADD COLUMN profile_updated_at INTEGER;"
+MIGRATE_PROFILE_MEMORY_COUNT = "ALTER TABLE contact_overrides ADD COLUMN profile_memory_count_at_update INTEGER;"
 
 
 _conn: aiosqlite.Connection | None = None
@@ -122,6 +125,7 @@ async def init_db() -> aiosqlite.Connection:
     for stmt in (
         MIGRATE_VIA_BOT, MIGRATE_DELETED_AT, MIGRATE_EDITED_AT, MIGRATE_EXTRACTED_AT,
         MIGRATE_TG_FIRST_NAME, MIGRATE_TG_LAST_NAME, MIGRATE_TG_USERNAME,
+        MIGRATE_PROFILE, MIGRATE_PROFILE_UPDATED_AT, MIGRATE_PROFILE_MEMORY_COUNT,
     ):
         try:
             await _conn.execute(stmt)
@@ -321,6 +325,9 @@ _OVERRIDE_COLUMNS = {
     "tg_first_name",
     "tg_last_name",
     "tg_username",
+    "profile",
+    "profile_updated_at",
+    "profile_memory_count_at_update",
 }
 
 
@@ -410,6 +417,18 @@ async def set_style_fingerprint(*, conn_id: str, chat_id: int, json_str: str) ->
         chat_id=chat_id,
         style_fingerprint=json_str,
         style_updated_at=int(time.time()),
+    )
+
+
+async def set_profile(
+    *, conn_id: str, chat_id: int, profile: str, memory_count: int
+) -> None:
+    await upsert_override(
+        conn_id=conn_id,
+        chat_id=chat_id,
+        profile=profile,
+        profile_updated_at=int(time.time()),
+        profile_memory_count_at_update=memory_count,
     )
 
 

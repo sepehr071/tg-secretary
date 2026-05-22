@@ -56,7 +56,7 @@ All commands are sent to the bot's own DM (not via Business connection). Owner-o
 
 - Tagging: `/who <chat_id> <relationship> [nickname]`, `/contacts`, `/find <query>`, `/senders [N]`
 - Per-chat persona: drop file at `prompts/contacts/<chat_id>.txt`, then `/reload`; or `/note <chat_id> <text>` for a DB-backed addendum (overwrites).
-- Memory: `/prompt <chat_id> <fact>` (add a stacking fact), `/memory <chat_id>`, `/forget <memory_id>`, `/extract <chat_id>`, `/style <chat_id>`, `/purge <chat_id|all>`
+- Memory: `/profile <chat_id> [refresh]` (narrative briefing — primary), `/prompt <chat_id> <fact>` (add a stacking fact), `/memory <chat_id>`, `/forget <memory_id>`, `/extract <chat_id>`, `/style <chat_id>`, `/purge <chat_id|all>`
 - HITL: `/approval on|off`, `/innercircle on|off`, `/pending`, `/approve_<id>`, `/edit_<id>`, `/skip_<id>`
 - Live tuning (no restart): `/delay`, `/away_delay`, `/cooldown`, `/voice on|off`
 - Maintenance: `/preview <text>`, `/say <chat_id> <text>`, `/backup`, `/wipe <chat_id>` (purge messages+memory+summary)
@@ -85,7 +85,7 @@ Ubuntu + pm2. See `scripts/setup-ubuntu.sh` for one-shot install, `ecosystem.con
 
 ### Internal patterns
 - **Live env override**: read `db.get_state(key)` first, fall back to `settings.X`. See `handlers._live_int(...)` and `_voice_enabled()`. New tunables: add the live-read helper + a `/cmd` in `commands.py`.
-- **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/personas/<rel>.txt` → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → memory block → style fingerprint. `prompts.clear_cache()` flushes the mtime cache after edits.
+- **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/personas/<rel>.txt` → **narrative `profile`** (if synthesized) OR memory bullets (fallback for fresh contacts) → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → style fingerprint. The `profile` is a 200-400 word paragraph the extractor writes from `contact_memory` rows; once it exists it replaces the bullet list in-prompt. Built lazily by `memory.maybe_refresh_profile()`; gates on >=3 memories, 7d staleness, or 10 new memory rows. `prompts.clear_cache()` flushes the mtime cache after edits.
 - **Profile capture**: call `_capture_profile(conn_id, chat_id, msg)` in every inbound entry point (text / voice / non-text) after the owner-skip guard, before persisting the row.
 - **Owner-only command guard**: every `on_<cmd>` starts with `if not _is_owner(update): return`.
 

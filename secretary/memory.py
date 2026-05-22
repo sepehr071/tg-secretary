@@ -42,6 +42,28 @@ Hard rules (violation = unusable output):
 13. Maximum 6 memories per call.
 """
 
+PROFILE_SYSTEM = """You write a 200-400 word narrative profile of a specific person ({owner_first_name} talks to). The profile will be injected into the system prompt of a chatbot impersonating {owner_first_name}, so the bot reads it before every reply and uses it to sound like someone who actually knows this person.
+
+You are given:
+- Atomic facts already extracted about them (job, life context, preferences, in-jokes, open threads, events).
+- An optional conversation summary covering older history.
+
+Write a flowing prose paragraph (or two) that covers, in your own words and woven together:
+- Who they are: name, job/life-stage, where they live, key people in their life.
+- How they relate to {owner_first_name}: history together, recurring dynamics, in-jokes, level of intimacy.
+- Their personality and communication style: formality, humor, what they care about, what bores them.
+- Open threads and recurring topics they're likely to bring up.
+- Sensitive ground: topics to handle gently, things to never bring up unprompted.
+
+Hard rules:
+- Narrative prose. Not a list. Not headers. Not "1." / "•" / "-". One reader-friendly paragraph (or two short ones).
+- Stay grounded in the supplied facts. Don't invent details. If something is unknown, omit it. Better to be shorter than to fabricate.
+- Use the contact's real name when known; otherwise "she" / "he" / "they".
+- Write as a third-person briefing TO {owner_first_name}'s bot, not as the contact and not as {owner_first_name}.
+- Plain text only. No markdown. No greetings. No "Here's the profile:" preamble. Just the paragraph(s).
+- 200-400 words. Cut anything that isn't actionable for sounding like you know them.
+"""
+
 STYLE_SYSTEM = """Analyze how the OWNER writes to this contact. Return STRICT JSON:
 {"avg_length": <int>, "formality": "casual|warm|formal", "emoji_freq": "none|light|heavy", "languages": ["en","fa",...], "pet_names": [...], "signature_open": "<string or empty>", "signature_close": "<string or empty>"}
 
@@ -170,8 +192,8 @@ async def _extract_for_chat(conn_id: str, chat_id: int) -> None:
 
 async def extract_worker() -> None:
     """Background loop. Drains extraction_queue.
-    After each job, opportunistically tries summary + style refresh for that chat —
-    both are no-ops if their internal staleness checks reject (so cheap to call).
+    After each job, opportunistically tries summary + style + profile refresh —
+    each has its own staleness gate (cheap to call, no-op if not due).
     Runs off the user-facing hot path, so cost/latency only hits the extractor model.
     """
     log.info("memory extractor worker started")
@@ -192,12 +214,98 @@ async def extract_worker() -> None:
                 await maybe_refresh_style(conn_id, chat_id)
             except Exception:
                 log.exception("maybe_refresh_style failed in worker")
+            try:
+                await maybe_refresh_profile(conn_id, chat_id)
+            except Exception:
+                log.exception("maybe_refresh_profile failed in worker")
             await db.mark_processed(job["id"])
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("extractor loop error")
             await asyncio.sleep(5)
+
+
+# Profile refresh thresholds.
+PROFILE_MIN_MEMORIES = 3              # need at least this many facts to synthesize
+PROFILE_STALE_SECONDS = 7 * 86400     # 7 days
+PROFILE_NEW_MEMORY_TRIGGER = 10       # refresh if this many new memory rows since last build
+
+
+async def maybe_refresh_profile(
+    conn_id: str, chat_id: int, *, force: bool = False
+) -> str | None:
+    """Lazy refresh of the per-contact narrative profile.
+
+    Skip unless:
+      - force=True (owner ran /profile <id> refresh), OR
+      - no profile yet AND >= PROFILE_MIN_MEMORIES active memory rows, OR
+      - existing profile is older than PROFILE_STALE_SECONDS, OR
+      - >= PROFILE_NEW_MEMORY_TRIGGER new memory rows since last build.
+
+    Returns the new profile text on refresh, None if skipped/failed.
+    """
+    memories = await db.list_memory(conn_id=conn_id, chat_id=chat_id)
+    if not force and len(memories) < PROFILE_MIN_MEMORIES:
+        return None
+
+    override = await db.get_override(conn_id=conn_id, chat_id=chat_id)
+    existing_profile = override.get("profile") if override else None
+    last_update = (override.get("profile_updated_at") if override else None) or 0
+    last_count = (override.get("profile_memory_count_at_update") if override else None) or 0
+
+    if not force and existing_profile:
+        age = int(time.time()) - int(last_update)
+        new_memories = len(memories) - int(last_count)
+        if age < PROFILE_STALE_SECONDS and new_memories < PROFILE_NEW_MEMORY_TRIGGER:
+            return None
+
+    if not memories and not force:
+        return None
+
+    # Build the input: memory rows grouped + chat summary (if any).
+    fact_lines = [f"- [{m['kind']}] {m['content']}" for m in memories]
+    summary_row = await db.get_summary(conn_id=conn_id, chat_id=chat_id)
+    summary_text = summary_row["summary"] if summary_row else ""
+    user_payload = (
+        "Atomic facts already extracted about this person:\n"
+        + ("\n".join(fact_lines) if fact_lines else "(none)")
+        + "\n\nOlder conversation summary:\n"
+        + (summary_text or "(none)")
+        + "\n\nWrite the profile."
+    )
+    system_prompt = PROFILE_SYSTEM.replace(
+        "{owner_first_name}", settings.owner_first_name
+    )
+
+    try:
+        resp = await _extractor.chat.completions.create(
+            model=settings.extractor_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_payload},
+            ],
+            temperature=0.3,
+            max_tokens=1500,
+        )
+        profile_text = (resp.choices[0].message.content or "").strip()
+    except Exception:
+        log.exception("profile refresh LLM call failed (chat=%s)", chat_id)
+        return None
+
+    if not profile_text:
+        log.warning("profile refresh produced empty output (chat=%s)", chat_id)
+        return None
+
+    await db.set_profile(
+        conn_id=conn_id, chat_id=chat_id,
+        profile=profile_text, memory_count=len(memories),
+    )
+    log.info(
+        "profile refreshed chat=%s memories=%d chars=%d force=%s",
+        chat_id, len(memories), len(profile_text), force,
+    )
+    return profile_text
 
 
 async def maybe_refresh_style(conn_id: str, chat_id: int) -> None:
