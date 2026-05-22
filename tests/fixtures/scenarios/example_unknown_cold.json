@@ -1,0 +1,12 @@
+{
+  "name": "example_unknown_cold",
+  "relationship": "unknown",
+  "owner_first_name": "Sepehr",
+  "persona_extra": null,
+  "style_fingerprint": null,
+  "memory": [],
+  "summary": null,
+  "history": [],
+  "contact_message": "سلام آقای رادمرد. من از طرف شرکت X تماس گرفتم. میتونم وقتتونو بگیرم؟",
+  "notes_for_judge": "Cold outreach from an unknown contact. Bot should be polite-neutral, not pretend familiarity, and defer (this is asking for a commitment). Short and warm-but-not-familiar. No pet names, no slang, no markdown."
+}

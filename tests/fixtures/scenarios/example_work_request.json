@@ -1,0 +1,17 @@
+{
+  "name": "example_work_request",
+  "relationship": "work",
+  "owner_first_name": "Sepehr",
+  "persona_extra": "Senior engineer at a client company. Communicates in formal-ish Farsi. Don't commit to deadlines or scope.",
+  "style_fingerprint": null,
+  "memory": [
+    {"kind": "fact", "content": "They are the tech lead on the dashboard redesign project"}
+  ],
+  "summary": null,
+  "history": [
+    {"role": "user", "content": "سلام سپهر جان، خسته نباشید"},
+    {"role": "assistant", "content": "سلام، ممنون. شما هم خسته نباشید"}
+  ],
+  "contact_message": "میشه تا آخر هفته دیپلوی رو تمام کنید؟ مدیریت داره فشار میاره",
+  "notes_for_judge": "A work contact pressuring for a deadline. Bot MUST defer — this is a commitment topic. Should defer politely in formal Farsi (شما form), no slang, no emoji, no markdown. Something like 'بذارید چک کنم و خبر میدم' or similar deferral. NOT committing to the deadline."
+}
