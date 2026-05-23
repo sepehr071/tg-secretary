@@ -4,9 +4,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -92,6 +93,41 @@ VALID_RELATIONSHIPS = {
     "gf", "bff", "close_friend", "friend", "family", "work", "acquaintance", "unknown",
 }
 VALID_REACT_MODES = {"auto", "manual", "off"}
+
+
+_PROMPT_LIST_MAX_ROWS = 20
+_PROMPT_LABEL_MAX_CHARS = 40
+
+
+def _build_prompt_list_view(chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Render prompts/contacts/<chat_id>.txt as text + per-line delete keyboard.
+
+    Returns (body, markup). Markup is None when the file is missing or empty —
+    nothing to delete, so no buttons. callback_data carries the 0-based file
+    line index (not the display number) so blank-line stripping doesn't shift it.
+    """
+    path = settings.prompts_dir / "contacts" / f"{chat_id}.txt"
+    if not path.exists():
+        return (f"(no prompt file for chat {chat_id})", None)
+    raw_lines = path.read_text(encoding="utf-8").splitlines()
+    indexed = [(i, line) for i, line in enumerate(raw_lines) if line.strip()]
+    if not indexed:
+        return (f"(prompt file for chat {chat_id} is empty)", None)
+    shown = indexed[:_PROMPT_LIST_MAX_ROWS]
+    body_lines = [f"prompts/contacts/{chat_id}.txt:"]
+    for n, (_file_idx, line) in enumerate(shown, 1):
+        body_lines.append(f"{n}. {line}")
+    if len(indexed) > _PROMPT_LIST_MAX_ROWS:
+        body_lines.append(
+            f"...({len(indexed) - _PROMPT_LIST_MAX_ROWS} more lines, edit file directly)"
+        )
+    keyboard: list[list[InlineKeyboardButton]] = []
+    for file_idx, line in shown:
+        label = line if len(line) <= _PROMPT_LABEL_MAX_CHARS else line[: _PROMPT_LABEL_MAX_CHARS - 3] + "..."
+        keyboard.append([
+            InlineKeyboardButton(f"🗑️ {label}", callback_data=f"pdel:{chat_id}:{file_idx}")
+        ])
+    return ("\n".join(body_lines), InlineKeyboardMarkup(keyboard))
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +329,71 @@ async def on_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"note set for chat {chat_id}")
 
 
+async def on_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manage prompts/contacts/<chat_id>.txt.
+
+    /prompt <chat_id>          → list lines with 🗑️ delete buttons.
+    /prompt <chat_id> <fact>   → append `- <fact>`. Clears prompts cache.
+    """
+    if not _is_owner(update):
+        return
+    if not ctx.args:
+        await _reply(update, "usage: /prompt <chat_id> [<fact>]")
+        return
+    chat_id = _parse_int(ctx.args[0])
+    if chat_id is None:
+        await _reply(update, "invalid chat_id")
+        return
+    # No fact given → list current contents with per-line delete buttons.
+    if len(ctx.args) == 1:
+        if update.effective_message is None:
+            return
+        body, markup = _build_prompt_list_view(chat_id)
+        await update.effective_message.reply_text(body, reply_markup=markup)
+        return
+    text = " ".join(ctx.args[1:]).strip().strip('"').strip("'").strip()
+    if not text:
+        await _reply(update, "empty fact")
+        return
+    target = settings.prompts_dir / "contacts" / f"{chat_id}.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    existing = target.read_text(encoding="utf-8") if target.exists() else ""
+    sep = "" if (not existing or existing.endswith("\n")) else "\n"
+    target.write_text(existing + sep + f"- {text}\n", encoding="utf-8")
+    prompts.clear_cache()
+    await _reply(update, f"📝 appended to {target.name} → {text}")
+
+
+async def on_prompt_del_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if q is None:
+        return
+    await q.answer()
+    if q.from_user is None or q.from_user.id != settings.owner_user_id:
+        return
+    parts = (q.data or "").split(":", 2)
+    if len(parts) != 3:
+        return
+    _, chat_id_str, idx_str = parts
+    chat_id = _parse_int(chat_id_str)
+    idx = _parse_int(idx_str)
+    if chat_id is None or idx is None:
+        return
+    path = settings.prompts_dir / "contacts" / f"{chat_id}.txt"
+    if not path.exists():
+        await q.edit_message_text("(file gone)")
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if idx < 0 or idx >= len(lines):
+        await q.edit_message_text("(line index out of range — file changed?)")
+        return
+    lines.pop(idx)
+    path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
+    prompts.clear_cache()
+    body, markup = _build_prompt_list_view(chat_id)
+    await q.edit_message_text(body, reply_markup=markup)
+
+
 async def on_preview(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
         return
@@ -349,14 +450,35 @@ async def on_quiet(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tag a chat with a relationship.
+
+    /who <chat_id>                         → inline picker (2-column grid).
+    /who <chat_id> <relationship> [nick]   → direct write (legacy path).
+    """
     if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
         return
-    if len(ctx.args) < 2:
-        await _reply(update, "usage: /who <chat_id> <relationship> [nickname]")
+    if not ctx.args:
+        await _reply(update, "usage: /who <chat_id> [<relationship>] [nickname]")
         return
     chat_id = _parse_int(ctx.args[0])
     if chat_id is None:
         await _reply(update, "invalid chat_id")
+        return
+    # No relationship given → show inline picker; nickname unchanged.
+    if len(ctx.args) == 1:
+        if update.effective_message is None:
+            return
+        rels = sorted(VALID_RELATIONSHIPS)
+        rows: list[list[InlineKeyboardButton]] = []
+        for i in range(0, len(rels), 2):
+            rows.append([
+                InlineKeyboardButton(r, callback_data=f"who:{r}:{chat_id}")
+                for r in rels[i:i + 2]
+            ])
+        await update.effective_message.reply_text(
+            f"pick a relationship for chat {chat_id}:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
         return
     relationship = ctx.args[1].lower()
     if relationship not in VALID_RELATIONSHIPS:
@@ -371,6 +493,28 @@ async def on_who(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         conn_id=conn_id, chat_id=chat_id, relationship=relationship, nickname=nickname
     )
     await _reply(update, f"chat {chat_id}: relationship={relationship} nickname={nickname or '—'}")
+
+
+async def on_who_callback(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if q is None:
+        return
+    await q.answer()
+    if q.from_user is None or q.from_user.id != settings.owner_user_id:
+        return
+    parts = (q.data or "").split(":", 2)
+    if len(parts) != 3:
+        return
+    _, rel, chat_id_str = parts
+    chat_id = _parse_int(chat_id_str)
+    if chat_id is None or rel not in VALID_RELATIONSHIPS:
+        return
+    conn_id = await _active_conn_id()
+    if conn_id is None:
+        await q.edit_message_text("no active business connection")
+        return
+    await db.set_relationship(conn_id=conn_id, chat_id=chat_id, relationship=rel, nickname=None)
+    await q.edit_message_text(f"chat {chat_id}: relationship={rel}")
 
 
 async def on_memory(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -607,13 +751,14 @@ State:
 
 Per-chat:
  /pause_chat <chat_id> · /resume_chat <chat_id>
- /who <chat_id> <relationship> [nickname]
+ /who <chat_id> [<relationship>] [nickname] — no rel ⇒ inline picker
  /note <chat_id> <text> — appended persona note
  /forget_chat <chat_id> — purge stored messages for that chat
 
 Persona / prompts:
  /persona_for <chat_id> — show resolved system prompt
  /persona_path <chat_id> — path to per-contact .txt
+ /prompt <chat_id> [<fact>] — fact ⇒ append; no fact ⇒ list + 🗑️ delete
  /reload_prompts — re-read .txt files (clears mtime cache)
 
 Memory:
@@ -710,7 +855,7 @@ async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(
             f"  {r['chat_id']}  [{rel}]  {who}{uname_tail}  · {r['msg_count']} msgs · {age_min}m ago"
         )
-    lines.append("\ntag with: /who <chat_id> <relationship> [nickname]")
+    lines.append("\ntag with: /who <chat_id> [<relationship>] [nickname] — no rel ⇒ inline picker")
     await _reply(update, "\n".join(lines))
 
 
@@ -728,7 +873,7 @@ async def on_contacts(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
     rows = list(await cur.fetchall())
     if not rows:
-        await _reply(update, "no tagged contacts yet. use /who <chat_id> <relationship> [nickname]")
+        await _reply(update, "no tagged contacts yet. use /who <chat_id> [<relationship>] [nickname] — no rel ⇒ inline picker")
         return
     lines = ["tagged contacts:"]
     for r in rows:
@@ -1103,6 +1248,7 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("pause_chat", on_pause_chat))
     app.add_handler(CommandHandler("resume_chat", on_resume_chat))
     app.add_handler(CommandHandler("note", on_note))
+    app.add_handler(CommandHandler("prompt", on_prompt))
     app.add_handler(CommandHandler("preview", on_preview))
     app.add_handler(CommandHandler("approval", on_approval))
     app.add_handler(CommandHandler("quiet", on_quiet))
@@ -1136,3 +1282,7 @@ def register(app: Application) -> None:
     app.add_handler(MessageHandler(filters.Regex(r"^/approve_\d+$"), on_approve))
     app.add_handler(MessageHandler(filters.Regex(r"^/edit_\d+(\s|$)"), on_edit))
     app.add_handler(MessageHandler(filters.Regex(r"^/skip_\d+$"), on_skip))
+
+    # inline-keyboard callbacks (/who picker, /prompt per-line delete)
+    app.add_handler(CallbackQueryHandler(on_who_callback, pattern=r"^who:"))
+    app.add_handler(CallbackQueryHandler(on_prompt_del_callback, pattern=r"^pdel:"))

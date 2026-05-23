@@ -155,7 +155,7 @@ if [ -z "${SKIP_ENV:-}" ]; then
     echo
     step "Optional — press Enter for defaults"
 
-    ask_default "Reply model" "anthropic/claude-sonnet-4-6" OPENROUTER_MODEL
+    ask_default "Reply model" "openai/gpt-5.5" OPENROUTER_MODEL
     ask_default "How many turns of history per reply" "12" HISTORY_TURNS
     ask_default "Auto-reply delay (s)" "30" AUTO_REPLY_DELAY_SECONDS
     ask_default "Away-mode delay (s)" "5" AWAY_REPLY_DELAY_SECONDS

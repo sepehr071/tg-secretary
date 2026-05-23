@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     tg_bot_token: str
     openrouter_api_key: str
-    openrouter_model: str = "anthropic/claude-sonnet-4-6"
+    openrouter_model: str = "openai/gpt-5.5"
     owner_user_id: int
     owner_first_name: str = "the owner"
     db_path: Path = Path("./secretary.db")
