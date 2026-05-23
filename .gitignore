@@ -28,3 +28,10 @@ tests/fixtures/scenarios/raw_*.json
 tmp_test_*.db
 tmp_test_*.db-wal
 tmp_test_*.db-shm
+
+# Web tester uploads
+webtest/uploads/*
+!webtest/uploads/.gitkeep
+
+# Owner self-facts — personal data, do not publish.
+prompts/about_me.txt

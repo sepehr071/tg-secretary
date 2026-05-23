@@ -258,6 +258,30 @@ async def load_history(
     return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 
+async def load_history_before(
+    *, conn_id: str, chat_id: int, before_id: int, limit: int
+) -> list[dict[str, str]]:
+    """Return last `limit` messages (oldest-first) with id < before_id.
+
+    Used by the webtest replay engine for strict-replay history: only messages
+    that the live bot would have seen at the moment the target user message
+    arrived, never anything from after it.
+    """
+    db = _db()
+    cur = await db.execute(
+        """
+        SELECT role, content FROM messages
+        WHERE conn_id = ? AND chat_id = ? AND id < ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (conn_id, chat_id, before_id, limit),
+    )
+    rows = list(await cur.fetchall())
+    rows.reverse()
+    return [{"role": r["role"], "content": r["content"]} for r in rows]
+
+
 async def load_history_with_summary(
     *, conn_id: str, chat_id: int, limit: int
 ) -> tuple[str | None, list[dict[str, str]]]:

@@ -40,12 +40,33 @@ client = AsyncOpenAI(
 )
 
 
+VALID_REASONING_EFFORTS = {"xhigh", "high", "medium", "low", "minimal", "none"}
+
+
+def _reasoning_body(effort: str | None) -> dict[str, Any]:
+    """Build the OpenRouter `reasoning` block for a chat-completions request.
+
+    Always sets exclude=True so reasoning tokens never leak into the reply
+    content. Defaults to effort=minimal — the production-tuned floor that's
+    accepted by Gemini 3.5+ (which rejects reasoning.enabled=false outright).
+
+    Pass an explicit `effort` from {xhigh, high, medium, low, minimal, none}
+    to override per-call. Unknown values fall back to the default.
+    """
+    chosen = (effort or "").strip().lower()
+    if chosen not in VALID_REASONING_EFFORTS:
+        chosen = "minimal"
+    return {"reasoning": {"effort": chosen, "exclude": True}}
+
+
 async def generate_reply(
     *,
     system_prompt: str,
     history: list[dict[str, Any]],
     user_message: str,
     summary: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     wrapped = f"<<<contact_message>>>\n{user_message}\n<<<end_contact_message>>>"
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -55,18 +76,15 @@ async def generate_reply(
         )
     messages.extend(history)
     messages.append({"role": "user", "content": wrapped})
-    log.debug("openrouter request: model=%s msgs=%d", settings.openrouter_model, len(messages))
-    # Some providers (e.g. Gemini 3.5 Flash) reject reasoning.enabled=false with
-    # "Reasoning is mandatory for this endpoint." Use the lowest non-disabled
-    # setting instead: effort=minimal + exclude=true.
-    # - effort=minimal: providers that allow it (Gemini, OpenAI o-series) think briefly.
-    # - exclude=true: hides any reasoning tokens from the returned content so the
-    #   contact never sees scratchpad/thinking leakage.
-    # - Claude 4.6+ ignores `effort` (adaptive thinking) but honours `exclude`.
-    extra_body = {"reasoning": {"effort": "minimal", "exclude": True}}
+    chosen_model = model or settings.openrouter_model
+    log.debug(
+        "openrouter request: model=%s msgs=%d effort=%s",
+        chosen_model, len(messages), reasoning_effort or "minimal",
+    )
+    extra_body = _reasoning_body(reasoning_effort)
 
     resp = await client.chat.completions.create(
-        model=settings.openrouter_model,
+        model=chosen_model,
         messages=messages,  # type: ignore[arg-type]
         temperature=0.9,
         max_tokens=600,
@@ -78,7 +96,7 @@ async def generate_reply(
     if not text:
         # one retry with slightly lower temperature
         resp = await client.chat.completions.create(
-            model=settings.openrouter_model,
+            model=chosen_model,
             messages=messages,  # type: ignore[arg-type]
             temperature=0.7,
             max_tokens=600,

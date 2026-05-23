@@ -28,7 +28,13 @@ secretary/
 
 prompts/
 ├── personas/         <relationship>.txt — gf, bff, friend, family, work, ...
-└── contacts/         <chat_id>.txt — hand-tuned per-friend prompts
+├── contacts/         <chat_id>.txt — hand-tuned per-friend prompts
+└── about_me.txt      owner self-facts, injected as ## About me into every prompt
+
+webtest/              local FastAPI replay tester (uploads/<uuid>.db, model A/B/C compare + reasoning dropdown)
+├── app.py            FastAPI endpoints + SSE replay stream
+├── replay.py         per-turn fan-out over N (model, reasoning_effort) columns
+└── static/, templates/
 
 tests/
 ├── fixtures/
@@ -68,6 +74,8 @@ All commands are sent to the bot's own DM (not via Business connection). Owner-o
 
 - Tagging: `/who <chat_id> <relationship> [nickname]`, `/contacts`, `/find <query>`
 - Per-chat persona: drop file at `prompts/contacts/<chat_id>.txt`, then `/reload_prompts`; or `/note <chat_id> <text>` for DB-backed addendum.
+- One-line facts: `/prompt <chat_id> <fact>` appends `- <fact>` to `prompts/contacts/<chat_id>.txt` and clears the prompt cache.
+- Owner self-facts: edit `prompts/about_me.txt`; injected as `## About me` section into every assembled prompt.
 - Memory: `/memory <chat_id>`, `/remember`, `/forget`, `/extract <chat_id>`, `/style <chat_id>`
 - HITL: `/approval on|off`, `/innercircle on|off`, `/pending`, `/approve_<id>`, `/edit_<id>`, `/skip_<id>`
 - Live tuning (no restart): `/delay`, `/away_delay`, `/cooldown`, `/voice on|off`
@@ -105,6 +113,8 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 
 ### Foot-guns
 - OpenRouter `reasoning.enabled=false` is rejected by Gemini 3.5+ ("Reasoning is mandatory"). Use `extra_body={"reasoning": {"effort": "minimal", "exclude": True}}` for cross-model compat.
+- OpenRouter `reasoning` param: `effort ∈ {xhigh, high, medium, low, minimal, none}` (OpenAI-style) OR `max_tokens: <int>` (Anthropic-style) — never both. Always include `exclude: true` so reasoning tokens don't leak into the reply content. `secretary/llm.py:generate_reply` accepts a `reasoning_effort` kwarg; default is `minimal+exclude` (the floor Gemini 3.5+ won't reject).
+- Starlette `Jinja2Templates.TemplateResponse` signature: `templates.TemplateResponse(request, "name.html", {...})` — `request` is now positional. Old `TemplateResponse("name.html", {"request": request, ...})` form raises `TypeError: unhashable type: 'dict'` on Starlette ≥ 0.29.
 - Telegram `getFile` URL embeds the bot token; httpx logs it at INFO. Treat `pm2 logs` as a token-leak surface — `@BotFather /revoke` if a paste escapes.
 - `cur.lastrowid` is `int | None`. Guard with `if lastrowid is None: raise RuntimeError(...)` before returning from INSERT helpers.
 - OpenAI SDK `messages=` trips Pyright on `list[dict[str, Any]]`. Suppress with `# type: ignore[arg-type]` on the arg line itself.
@@ -119,7 +129,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 
 ### Internal patterns
 - **Live env override**: read `db.get_state(key)` first, fall back to `settings.X`. See `handlers._live_int(...)` and `_voice_enabled()`. New tunables: add the live-read helper + a `/cmd` in `commands.py`.
-- **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/personas/<rel>.txt` → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → memory block → style fingerprint. `prompts.clear_cache()` flushes the mtime cache after edits.
+- **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/about_me.txt` (## About me) → `prompts/personas/<rel>.txt` → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → memory block → style fingerprint. `prompts.clear_cache()` flushes the mtime cache after edits.
 - **Profile capture**: call `_capture_profile(conn_id, chat_id, msg)` in every inbound entry point (text / voice / non-text) after the owner-skip guard, before persisting the row.
 - **Owner-only command guard**: every `on_<cmd>` starts with `if not _is_owner(update): return`.
 
@@ -129,6 +139,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 - Log filter on Ubuntu: `pm2 logs tg-secretary --lines 200 | grep -iE "voice|whisper|httpx|llm"`.
 - Prompt suite, no LLM cost: `uv run python scripts/test_prompts.py --no-judge` — exercises scenario load + DB seed + persona stack assembly + reply call + cleanup-pipeline structural checks.
 - Prompt suite, full: `uv run python scripts/test_prompts.py` — adds judge grading + rubric verdict.
+- Web tester: `PYTHONIOENCODING=utf-8 uv run python -m webtest` → http://127.0.0.1:8765/. Upload `secretary.db`, pick chat + slice, compare up to 3 models side-by-side with per-column reasoning effort.
 
 ### Deploy
 - `pm2 start ecosystem.config.cjs` is the only command users need; `scripts/setup-ubuntu.sh` is interactive + re-runnable (asks to regenerate or keep existing `.env`).

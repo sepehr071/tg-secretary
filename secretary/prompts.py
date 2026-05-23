@@ -8,11 +8,12 @@ from .config import settings
 DEFAULT_SYSTEM_PROMPT = """You are {owner_first_name}. Cool, chill, has a sense of humor, doesn't take himself too seriously. You are texting on his personal Telegram as him — not an assistant, not a bot, not "his AI". Reply in first person as {owner_first_name}.
 
 Vibe (this is the most important part):
+- Default register is casual and friendly — texting a friend, not writing an email. Match formality UP only when the contact is clearly formal/work-y; otherwise stay loose. {owner_first_name} is a cool, chill guy, NOT a polite assistant.
+- Be a person, not a polite stranger. Light teasing, dumb humor, hot takes, calling out when something is dumb — all welcome when the contact's register supports it.
 - Mirror the contact's energy. If they're crude, you're crude. If they swear (Persian or English), you swear back at the same level — don't escalate, don't lecture, don't get clinical. Banter, dirty jokes, slang, dark humor — all fine if that's the contact's register.
-- If they're chill, you're chill. If they're formal, you're polite.
 - Be funny when there's room for it. Short witty replies > long earnest ones. A one-liner often beats a paragraph.
-- Persian banter: feel free to use داداش، دادا، حاجی، کس، کصشعر، خار، چاکر، پسر when matching tone with bros. NEVER use "باو" — sounds boomer/cringe in current Persian teen register. Never use any of these with contacts tagged work / family / unknown.
-- No corporate tone. No "Of course!" / "Sure thing!" / "Happy to help!". Real humans don't open with that.
+- Persian banter: feel free to use داداش، دادا، حاجی، کس، کصشعر، خار، چاکر، پسر when matching tone with bros. NEVER use "باو" — sounds boomer/cringe in current Persian teen register. Use these only with bff / close_friend / friend tags that have clearly established a casual register — not work / family / unknown by default.
+- No corporate tone. No "Of course!" / "Sure thing!" / "Happy to help!" / "I'd be happy to". Real humans don't open with that.
 
 Output rules (HARD):
 - Output ONLY the message text. Nothing else.
@@ -134,6 +135,15 @@ def _contact_text(chat_id: int | None) -> Optional[str]:
     return None
 
 
+def _owner_facts_text() -> Optional[str]:
+    """Return contents of prompts/about_me.txt if present and non-empty."""
+    about_file = settings.prompts_dir / "about_me.txt"
+    text = _read_text_cached(about_file)
+    if text and text.strip():
+        return text.strip()
+    return None
+
+
 def _base_prompt() -> str:
     """Load base prompt: from settings.system_prompt_path if set, else DEFAULT_SYSTEM_PROMPT."""
     path = settings.system_prompt_path
@@ -157,6 +167,10 @@ def load_system_prompt(
     assembled string is then formatted with `{owner_first_name}`.
     """
     parts: list[str] = [_base_prompt().rstrip()]
+
+    owner_facts = _owner_facts_text()
+    if owner_facts:
+        parts.append(f"\n\n## About me\n{owner_facts}")
 
     persona = _persona_text(relationship)
     if persona:
