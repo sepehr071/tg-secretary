@@ -15,6 +15,19 @@ _TRANSLATION_TAIL = re.compile(r"\s*\([A-Za-z][^)]{0,200}\)\s*$")
 _SCRATCHPAD_TAIL = re.compile(r"\n\s*[*\-•]\s+.*$", re.DOTALL)
 
 
+def _strip_terminal_period(text: str) -> str:
+    """Drop a single trailing period — the #1 tell that a reply was machine-written.
+
+    A "." at the end of a casual text reads cold/formal/auto-generated (especially
+    in Persian). Models leak it even when the prompt forbids it, so strip it here as
+    a deterministic backstop. Preserve an expressive ellipsis ("..."/".."/"…") and
+    leave "?"/"!"/"؟" untouched — only a lone final "." is the robot tell.
+    """
+    if text.endswith(".") and not text.endswith(".."):
+        return text[:-1].rstrip()
+    return text
+
+
 def _clean_output(text: str) -> str:
     """Strip leaked markdown/scratchpad/translation noise around the actual reply."""
     text = text.strip()
@@ -28,7 +41,7 @@ def _clean_output(text: str) -> str:
     text = _TRANSLATION_TAIL.sub("", text)
     # Trim a dangling opening/closing quote left by partial wrap.
     text = text.rstrip('"”»').rstrip()
-    return text.strip()
+    return _strip_terminal_period(text.strip())
 
 client = AsyncOpenAI(
     api_key=settings.openrouter_api_key,

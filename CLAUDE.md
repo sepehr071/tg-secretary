@@ -132,6 +132,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 - **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/about_me.txt` (## About me) → `prompts/personas/<rel>.txt` → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → memory block → style fingerprint. `prompts.clear_cache()` flushes the mtime cache after edits.
 - **Profile capture**: call `_capture_profile(conn_id, chat_id, msg)` in every inbound entry point (text / voice / non-text) after the owner-skip guard, before persisting the row.
 - **Owner-only command guard**: every `on_<cmd>` starts with `if not _is_owner(update): return`.
+- **Human-texting cleanup**: `llm._clean_output` runs `_strip_terminal_period` last — it deletes a lone trailing `.` (the #1 machine-written tell, doubly so in Persian) while preserving `...`/`..`/`…` and `؟`/`?`/`!`. The prompt forbids trailing periods too (models leak them anyway, hence the deterministic backstop). The DEFAULT prompt also mandates colloquial Persian spelling (میدونم not می‌دانم, no tidy ZWNJ everywhere) — formal book-Persian reads robotic.
 
 ### Smoke tests
 - Import-time crash: `uv run python -c "import secretary.__main__; print('OK')"`.
