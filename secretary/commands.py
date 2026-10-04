@@ -1250,12 +1250,14 @@ async def on_backup(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 def dashboard_text(token: str) -> str:
     port = settings.dashboard_port
+    public = settings.dashboard_public_url.rstrip("/")
+    text = f"One-time dashboard login, valid 1 hour:\n{public or f'http://127.0.0.1:{port}'}/login#t={token}"
+    if public:
+        return text
     tunnel = settings.dashboard_ssh_hint or f"ssh -L {port}:127.0.0.1:{port} <user>@<server>"
     return (
-        "One-time dashboard login, valid 1 hour:\n"
-        f"http://127.0.0.1:{port}/login#t={token}\n\n"
-        "The dashboard only listens on the server itself. On your computer, open the tunnel "
-        f"first, then the link above (127.0.0.1 goes through the tunnel):\n{tunnel}"
+        f"{text}\n\nThe dashboard only listens on the server itself. On your computer, open the "
+        f"tunnel first, then the link above (127.0.0.1 goes through the tunnel):\n{tunnel}"
     )
 
 

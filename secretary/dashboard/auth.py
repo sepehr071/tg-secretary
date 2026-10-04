@@ -9,8 +9,10 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
+from urllib.parse import urlsplit
 
 from .. import db
+from ..config import settings
 
 LOGIN_TTL = 3600
 SESSION_TTL = 7 * 86400
@@ -25,14 +27,17 @@ def _hash(token: str) -> str:
 
 
 def host_ok(host: str) -> bool:
-    """Loopback hostnames only, any port: blocks DNS rebinding, allows ssh -L 9000:..."""
-    name = host if host.endswith("]") else host.rsplit(":", 1)[0]
-    return name.lower() in _LOCAL_NAMES
+    """Loopback names (any port, so ssh -L 9000:... works) or the configured public
+    host; anything else is refused, which blocks DNS rebinding."""
+    name = (host if host.endswith("]") else host.rsplit(":", 1)[0]).lower()
+    public = (urlsplit(settings.dashboard_public_url).hostname or "").lower()
+    return name in _LOCAL_NAMES or (bool(public) and name == public)
 
 
 def origin_ok(origin: str | None, host: str) -> bool:
-    """POSTs must come from a page this dashboard served (CSRF guard)."""
-    return origin == f"http://{host}"
+    """POSTs must come from a page this dashboard served (CSRF guard); https covers a
+    TLS reverse proxy in front."""
+    return origin in (f"http://{host}", f"https://{host}")
 
 
 async def create_login_token(ttl: int = LOGIN_TTL) -> str:

@@ -33,9 +33,14 @@ class Settings(BaseSettings):
     extractor_model: str = "google/gemini-3.1-flash-lite"
     prompts_dir: Path = Path("./prompts")
 
-    # Owner web dashboard, served by the bot on 127.0.0.1 only (reach it over `ssh -L`).
+    # Owner web dashboard, served by the bot. Default: 127.0.0.1 only (reach it over `ssh -L`).
     dashboard_enabled: bool = True
     dashboard_port: int = 8780
+    # Opt-in public access: DASHBOARD_HOST=0.0.0.0 plus the URL people open, e.g.
+    # http://203.0.113.5:8780. Plain http exposes the session to anyone on the path;
+    # prefer an https reverse proxy (the cookie turns Secure for https URLs).
+    dashboard_host: str = "127.0.0.1"
+    dashboard_public_url: str = ""
     # Tunnel command /dashboard shows; the setup wizard fills it when run over SSH.
     dashboard_ssh_hint: str = ""
 

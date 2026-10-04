@@ -347,7 +347,8 @@ def first_login_link() -> tuple[str, int] | None:
             await db.close_db()
 
     port = settings.dashboard_port
-    return f"http://127.0.0.1:{port}/login#t={asyncio.run(mint())}", port
+    base = settings.dashboard_public_url.rstrip("/") or f"http://127.0.0.1:{port}"
+    return f"{base}/login#t={asyncio.run(mint())}", port
 
 
 def main() -> int:

@@ -55,7 +55,9 @@ New chats start out untagged and use the `unknown` persona. Tag your contacts wi
 
 ## Dashboard
 
-The bot serves a web dashboard on `127.0.0.1:8780` (set `DASHBOARD_PORT` to change it, `DASHBOARD_ENABLED=false` to turn it off). Send `/dashboard` to your bot to get a one-time login link. When the bot runs on a server, open a tunnel from your computer first: `ssh -L 8780:127.0.0.1:8780 user@server`. The dashboard covers live settings, config, business-connection status, contacts (relationship, notes, prompt files, memory), persona prompts and the approval queue. It is never exposed publicly.
+The bot serves a web dashboard on `127.0.0.1:8780` (set `DASHBOARD_PORT` to change it, `DASHBOARD_ENABLED=false` to turn it off). Send `/dashboard` to your bot to get a one-time login link. When the bot runs on a server, open a tunnel from your computer first: `ssh -L 8780:127.0.0.1:8780 user@server`. The dashboard covers live settings, config, business-connection status, contacts (relationship, notes, prompt files, memory), persona prompts and the approval queue.
+
+To skip the tunnel, set `DASHBOARD_HOST=0.0.0.0` and `DASHBOARD_PUBLIC_URL=http://<server-ip>:8780` (and open the port in your firewall). Be aware that over plain http the login link and session cookie travel unencrypted, so anyone on the path could take over the session and send messages as you. An https reverse proxy (Caddy, nginx) in front with `DASHBOARD_PUBLIC_URL=https://...` fixes that; the session cookie is then marked Secure.
 
 ## Prompt customization
 

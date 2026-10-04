@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import db
+from ..config import settings
 from ..setup import ENV_PATH
 from . import auth, contacts, drafts, pages
 from .web import render
@@ -59,8 +60,9 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
                 err="That link is invalid, used or expired. Send /dashboard to your bot for a new one.",
             )
         resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie(auth.COOKIE, session, max_age=auth.SESSION_TTL,
-                        httponly=True, samesite="strict", path="/")
+        resp.set_cookie(auth.COOKIE, session, max_age=auth.SESSION_TTL, httponly=True,
+                        samesite="strict", path="/",
+                        secure=settings.dashboard_public_url.startswith("https://"))
         return resp
 
     @app.post("/logout")
@@ -82,8 +84,8 @@ class _Server(uvicorn.Server):
         return contextlib.nullcontext()
 
 
-def make_server(app: FastAPI, port: int) -> uvicorn.Server:
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, access_log=False,
+def make_server(app: FastAPI, port: int, host: str = "127.0.0.1") -> uvicorn.Server:
+    config = uvicorn.Config(app, host=host, port=port, access_log=False,
                             log_config=None, log_level="warning")
     return _Server(config)
 

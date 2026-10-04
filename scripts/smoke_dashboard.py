@@ -142,6 +142,26 @@ async def check_auth(app) -> None:
     assert "-p 7744 ai_user@89.36.137.77" in text and "<user>" not in text
     settings.dashboard_ssh_hint = ""
 
+    # Opt-in public bind: the public address passes the Host guard and links use it.
+    assert not auth.host_ok("89.36.137.77:8780")
+    settings.dashboard_public_url = "http://89.36.137.77:8780"
+    assert auth.host_ok("89.36.137.77:8780") and not auth.host_ok("evil.example:8780")
+    text = dashboard_text("tok")
+    assert "http://89.36.137.77:8780/login#t=tok" in text and "ssh -L" not in text
+    async with client(app, base="http://89.36.137.77:8780") as c:
+        r = await c.post("/login", data={"token": await auth.create_login_token()},
+                         headers={"origin": "http://89.36.137.77:8780"})
+        assert r.status_code == 303 and "secure" not in r.headers["set-cookie"].lower()
+    # Behind an HTTPS reverse proxy the cookie must be Secure and an https Origin accepted.
+    settings.dashboard_public_url = "https://dash.example.com"
+    async with client(app, base="https://dash.example.com") as c:
+        r = await c.post("/login", data={"token": await auth.create_login_token()},
+                         headers={"origin": "https://dash.example.com"})
+        assert r.status_code == 303 and "secure" in r.headers["set-cookie"].lower()
+    settings.dashboard_public_url = ""
+    assert make_server(app, 0, "0.0.0.0").config.host == "0.0.0.0"
+    assert make_server(app, 0).config.host == "127.0.0.1"
+
 
 async def check_port_busy() -> None:
     # Spec: a taken port must not kill the bot; run_server logs and returns.

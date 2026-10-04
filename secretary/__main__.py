@@ -108,10 +108,14 @@ async def main() -> None:
     dash_server = None
     dash_task = None
     if settings.dashboard_enabled:
-        dash_server = make_server(create_app(app.bot, _request_stop), settings.dashboard_port)
+        dash_server = make_server(create_app(app.bot, _request_stop), settings.dashboard_port,
+                                  settings.dashboard_host)
         dash_task = asyncio.create_task(run_server(dash_server))
-        log.info("Dashboard on http://127.0.0.1:%d — send /dashboard to the bot for a login link",
-                 settings.dashboard_port)
+        log.info("Dashboard on %s:%d — send /dashboard to the bot for a login link",
+                 settings.dashboard_host, settings.dashboard_port)
+        if settings.dashboard_host not in ("127.0.0.1", "localhost", "::1"):
+            log.warning("Dashboard is publicly bound; over plain http the session can be sniffed. "
+                        "Prefer an https reverse proxy or the ssh tunnel.")
 
     try:
         await stop.wait()
