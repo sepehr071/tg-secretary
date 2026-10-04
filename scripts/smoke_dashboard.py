@@ -134,6 +134,14 @@ async def check_auth(app) -> None:
     assert not auth.host_ok("localhost.evil.com:8780") and not auth.host_ok("")
     assert settings.dashboard_enabled is True and settings.dashboard_port == 8780
 
+    # /dashboard shows the real tunnel command once setup saved it, else a placeholder.
+    from secretary.commands import dashboard_text
+    assert "<user>@<server>" in dashboard_text("tok") and "/login#t=tok" in dashboard_text("tok")
+    settings.dashboard_ssh_hint = "ssh -L 8780:127.0.0.1:8780 -p 7744 ai_user@89.36.137.77"
+    text = dashboard_text("tok")
+    assert "-p 7744 ai_user@89.36.137.77" in text and "<user>" not in text
+    settings.dashboard_ssh_hint = ""
+
 
 async def check_port_busy() -> None:
     # Spec: a taken port must not kill the bot; run_server logs and returns.

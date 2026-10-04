@@ -76,10 +76,11 @@ def find_owner(updates: list[dict[str, Any]], code: str) -> dict[str, Any] | Non
 
 def ssh_hint(port: int, env: Mapping[str, str]) -> str | None:
     """`ssh -L` command for reaching the dashboard, or None when not on SSH."""
-    parts = env.get("SSH_CONNECTION", "").split()
+    parts = env.get("SSH_CONNECTION", "").split()  # client_ip client_port server_ip server_port
     if len(parts) != 4:
         return None
-    return f"ssh -L {port}:127.0.0.1:{port} {env.get('USER') or 'you'}@{parts[2]}"
+    ssh_port = "" if parts[3] == "22" else f" -p {parts[3]}"
+    return f"ssh -L {port}:127.0.0.1:{port}{ssh_port} {env.get('USER') or 'you'}@{parts[2]}"
 
 
 def merge_env(env_path: Path, example_path: Path, values: Mapping[str, str]) -> Path | None:
@@ -373,6 +374,10 @@ def main() -> int:
             "OWNER_FIRST_NAME": first,
             "OPENROUTER_MODEL": model,
         }
+        # Saved so /dashboard can print the real tunnel command (the bot can't see SSH_CONNECTION).
+        hint = ssh_hint(int(cur.get("DASHBOARD_PORT") or 8780), os.environ)
+        if hint:
+            values["DASHBOARD_SSH_HINT"] = hint
         print()
         for k, v in values.items():
             print(f"  {k:<20} {mask(v) if k in SECRET_KEYS else v}")

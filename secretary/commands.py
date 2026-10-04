@@ -1248,6 +1248,17 @@ async def on_backup(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"💾 db backed up → {dst.name} ({size_kb} KB)")
 
 
+def dashboard_text(token: str) -> str:
+    port = settings.dashboard_port
+    tunnel = settings.dashboard_ssh_hint or f"ssh -L {port}:127.0.0.1:{port} <user>@<server>"
+    return (
+        "One-time dashboard login, valid 1 hour:\n"
+        f"http://127.0.0.1:{port}/login#t={token}\n\n"
+        "The dashboard only listens on the server itself. On your computer, open the tunnel "
+        f"first, then the link above (127.0.0.1 goes through the tunnel):\n{tunnel}"
+    )
+
+
 async def on_dashboard(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Reply with a one-time dashboard login link (valid 1 hour)."""
     if not _is_owner(update) or update.effective_message is None:
@@ -1255,12 +1266,8 @@ async def on_dashboard(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not settings.dashboard_enabled:
         await _reply(update, "dashboard is off (DASHBOARD_ENABLED=false in .env)")
         return
-    port = settings.dashboard_port
-    token = await create_login_token()
     await update.effective_message.reply_text(
-        "One-time dashboard login, valid 1 hour:\n"
-        f"http://127.0.0.1:{port}/login#t={token}\n\n"
-        f"Bot on a server? Open a tunnel first:\nssh -L {port}:127.0.0.1:{port} <user>@<server>",
+        dashboard_text(await create_login_token()),
         link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
 

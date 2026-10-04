@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     # Owner web dashboard, served by the bot on 127.0.0.1 only (reach it over `ssh -L`).
     dashboard_enabled: bool = True
     dashboard_port: int = 8780
+    # Tunnel command /dashboard shows; the setup wizard fills it when run over SSH.
+    dashboard_ssh_hint: str = ""
 
 
 settings = Settings()  # type: ignore[call-arg]

@@ -44,6 +44,9 @@ assert find_owner(updates[:2], code) is None
 assert ssh_hint(8780, {}) is None
 assert ssh_hint(8780, {"SSH_CONNECTION": "1.2.3.4 5555 10.0.0.9 22", "USER": "deploy"}) == \
     "ssh -L 8780:127.0.0.1:8780 deploy@10.0.0.9"
+# A non-standard sshd port must be in the command, or the tunnel can't connect.
+assert ssh_hint(8780, {"SSH_CONNECTION": "1.2.3.4 5555 89.36.137.77 7744", "USER": "ai_user"}) == \
+    "ssh -L 8780:127.0.0.1:8780 -p 7744 ai_user@89.36.137.77"
 
 # Token shape gate keeps junk (and path tricks) out of the getMe URL.
 assert TOKEN_RE.match("123456:" + "A" * 35)
