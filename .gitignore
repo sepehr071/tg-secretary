@@ -1,0 +1,46 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+.uv/
+*.bak
+*.bak.db
+dist/
+build/
+*.egg-info/
+.DS_Store
+.idea/
+.vscode/
+logs/
+.pm2/
+
+# Test artifacts
+tests/snapshots/*
+!tests/snapshots/.gitkeep
+tests/fixtures/scenarios/raw_*.json
+tmp_test_*.db
+tmp_test_*.db-wal
+tmp_test_*.db-shm
+
+# Web tester uploads
+webtest/uploads/*
+!webtest/uploads/.gitkeep
+
+# Owner self-facts — personal data, do not publish.
+prompts/about_me.txt
+analysis/
+
+# Per-contact prompts — real names, relationships, PII. Never commit.
+# (.gitkeep and *.txt.example stay tracked — the glob below doesn't match them.)
+prompts/contacts/*.txt
+
+# Your real personas. The shipped <rel>.example.txt files are the fallback.
+prompts/personas/*.txt
+!prompts/personas/*.example.txt

@@ -1,0 +1,4 @@
+# Force LF on shell scripts so Windows checkouts don't break the Ubuntu deploy.
+*.sh text eol=lf
+*.cjs text eol=lf
+*.js  text eol=lf

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>tg-secretary — replay tester</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>tg-secretary replay tester</h1>
+    <p class="muted">Local-only. Upload a <code>secretary.db</code> snapshot, pick a chat + slice, replay against any OpenRouter model.</p>
+  </header>
+
+  <section id="sec-upload" class="card">
+    <h2>1 · Upload DB</h2>
+    <form id="upload-form">
+      <input type="file" id="db-file" accept=".db,.sqlite,.sqlite3" required />
+      <button type="submit">Upload</button>
+      <span id="upload-status" class="muted"></span>
+    </form>
+  </section>
+
+  <section id="sec-chat" class="card disabled">
+    <h2>2 · Pick chat</h2>
+    <select id="chat-picker" disabled>
+      <option value="">— upload a DB first —</option>
+    </select>
+    <div id="chat-meta" class="muted"></div>
+  </section>
+
+  <section id="sec-slice" class="card disabled">
+    <h2>3 · Pick slice</h2>
+    <div id="slice-banner" class="muted">no chat selected</div>
+    <div id="message-list-wrap">
+      <button id="load-older" class="ghost" disabled>↑ load older</button>
+      <ol id="message-list"></ol>
+    </div>
+  </section>
+
+  <section id="sec-replay" class="card disabled">
+    <h2>4 · Replay (up to 3 models side-by-side)</h2>
+    <form id="replay-form">
+      <div class="cols-config">
+        <div class="col-row" data-col="0">
+          <span class="col-label">A</span>
+          <input type="text" class="model-input" value="{{ default_model }}" placeholder="anthropic/claude-sonnet-4-6" />
+          <select class="reasoning-select">
+            <option value="default" selected>reasoning: default (minimal)</option>
+            <option value="none">none</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+          </select>
+        </div>
+        <div class="col-row" data-col="1">
+          <span class="col-label">B</span>
+          <input type="text" class="model-input" placeholder="google/gemini-3.5-flash (blank = skip)" />
+          <select class="reasoning-select">
+            <option value="default" selected>reasoning: default (minimal)</option>
+            <option value="none">none</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+          </select>
+        </div>
+        <div class="col-row" data-col="2">
+          <span class="col-label">C</span>
+          <input type="text" class="model-input" placeholder="openai/gpt-5 (blank = skip)" />
+          <select class="reasoning-select">
+            <option value="default" selected>reasoning: default (minimal)</option>
+            <option value="none">none</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+          </select>
+        </div>
+      </div>
+      <div class="replay-row">
+        <button type="submit" id="replay-button" disabled>Replay slice</button>
+        <span id="replay-status" class="muted"></span>
+      </div>
+    </form>
+    <div id="results"></div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
