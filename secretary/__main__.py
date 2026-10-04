@@ -14,6 +14,7 @@ from telegram.ext import (
 
 from . import commands, handlers, memory
 from .config import settings
+from .dashboard.app import create_app, make_server, run_server
 from .db import close_db, init_db
 
 logging.basicConfig(
@@ -104,12 +105,23 @@ async def main() -> None:
         except (NotImplementedError, RuntimeError):
             pass
 
+    dash_server = None
+    dash_task = None
+    if settings.dashboard_enabled:
+        dash_server = make_server(create_app(app.bot, _request_stop), settings.dashboard_port)
+        dash_task = asyncio.create_task(run_server(dash_server))
+        log.info("Dashboard on http://127.0.0.1:%d — send /dashboard to the bot for a login link",
+                 settings.dashboard_port)
+
     try:
         await stop.wait()
     except KeyboardInterrupt:
         pass
     finally:
         log.info("Shutting down…")
+        if dash_server is not None and dash_task is not None:
+            dash_server.should_exit = True
+            await dash_task
         worker_task.cancel()
         try:
             await worker_task

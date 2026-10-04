@@ -24,7 +24,15 @@ secretary/
 ├── voice.py          OpenRouter Whisper transcription (httpx)
 ├── memory.py         extraction worker + style fingerprint + summarization
 ├── llm.py            reply generation (delimiter-wrapped, retry-on-empty)
-└── prompts.py        PERSONA registry + file-backed per-contact prompts
+├── prompts.py        PERSONA registry + file-backed per-contact prompts
+├── setup.py          first-run wizard (validates token/key, owner /start code, writes .env)
+└── dashboard/        owner web UI served in-process on 127.0.0.1
+    ├── app.py        create_app, guard middleware, login/logout, uvicorn server task
+    ├── auth.py       one-time login tokens + hashed sessions in bot_state, Host/Origin guards
+    ├── pages.py      Status, Settings (live bot_state + .env config), restart
+    ├── contacts.py   contacts, memory, per-contact prompt files, persona/about_me editor
+    ├── drafts.py     HITL queue (Send / Skip)
+    └── web.py, templates/, static/
 
 prompts/
 ├── personas/         <relationship>.txt (gitignored, real) → falls back to tracked <relationship>.example.txt
@@ -80,6 +88,7 @@ All commands are sent to the bot's own DM (not via Business connection). Owner-o
 - HITL: `/approval on|off`, `/innercircle on|off`, `/pending`, `/approve_<id>`, `/edit_<id>`, `/skip_<id>`
 - Live tuning (no restart): `/delay`, `/away_delay`, `/cooldown`, `/voice on|off`
 - Maintenance: `/preview <text>`, `/say <chat_id> <text>`, `/backup`, `/forget_chat <chat_id>`
+- Web dashboard: `/dashboard` replies with a one-time login link (1 h). Over SSH: `ssh -L 8780:127.0.0.1:8780 user@server`. It writes the same `bot_state` keys as the commands, so both surfaces always agree.
 
 ## Deploy
 
@@ -139,9 +148,15 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 - **HITL drafts**: resolve through `commands._resolve_pending` → `db.claim_pending` (atomic `UPDATE ... WHERE status='pending' AND expires_at > now`) so a double-tapped Send can't send twice.
 - **Proxy env for local runs**: Python ignores the OS proxy setting. On a host where direct egress is blocked, export `HTTPS_PROXY`/`HTTP_PROXY` first — otherwise OpenRouter calls fail with `403 Access denied by security policy`, which looks like an auth error but isn't.
 - `allowed_updates` in `__main__.py` must list `callback_query`, or every inline button silently does nothing.
+- **Dashboard runtime**: runs as a `uvicorn.Server` task in the bot's asyncio loop. `_Server.capture_signals` is a no-op so uvicorn doesn't steal SIGINT/SIGTERM from the bot. A busy port logs an error and the bot keeps running (uvicorn's `sys.exit(1)` is caught in `run_server`). Restart button = graceful stop; pm2 brings it back.
+- **Dashboard auth**: login only via one-time links (`/dashboard`, or the end of `secretary.setup`); the token sits in the URL fragment so it never hits a log. Tokens and sessions are sha256-hashed in `bot_state` under `dash_login:` / `dash_session:`. Guards: loopback `Host` (any port, so `ssh -L 9000:...` works) plus `Origin` on every POST. Never add a public-bind option; access is through `ssh -L`.
+- `secretary/setup.py` must not import `secretary.config` at module level (Settings() fails without `.env`). The dashboard reuses its `mask` / `merge_env` / network checks; tests stub them via the `setup` module attribute.
+- `smoke_*.py` scripts must close the DB in `finally`: an open aiosqlite thread hangs the process when an assert fails.
 
 ### Smoke tests
 - Offline core logic (no .env, no network): `uv run python scripts/smoke_core.py`.
+- Setup wizard helpers: `uv run python scripts/smoke_setup.py`.
+- Dashboard routes + DB helpers (no network): `PYTHONIOENCODING=utf-8 uv run python scripts/smoke_dashboard.py`.
 - Import-time crash: `uv run python -c "import secretary.__main__; print('OK')"`.
 - Migration sanity: `init_db`, then `PRAGMA table_info(<table>)` for any migrated table.
 - Log filter on Ubuntu: `pm2 logs tg-secretary --lines 200 | grep -iE "voice|whisper|httpx|llm"`.

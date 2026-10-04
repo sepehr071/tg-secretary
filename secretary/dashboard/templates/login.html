@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Log in</h1>
+<p>Send <code>/dashboard</code> to your bot in Telegram to get a one-time login link.</p>
+<form method="post" action="/login" id="login" class="row">
+  <input name="token" id="token" placeholder="token from the link" autocomplete="off" required>
+  <button>Log in</button>
+</form>
+<script>
+  // The token rides in the URL fragment so it never reaches a server log; submit it once.
+  const t = new URLSearchParams(location.hash.slice(1)).get("t");
+  if (t) {
+    history.replaceState(null, "", "/login");
+    document.getElementById("token").value = t;
+    document.getElementById("login").submit();
+  }
+</script>
+{% endblock %}

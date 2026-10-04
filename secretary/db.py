@@ -840,3 +840,117 @@ async def get_state_bool(key: str, default: bool = False) -> bool:
 
 async def set_state_bool(key: str, value: bool) -> None:
     await set_state(key, "on" if value else "off")
+
+
+async def pop_state(key: str) -> str | None:
+    """Delete a bot_state row and return its value in one statement, so a
+    one-time token can be redeemed only once."""
+    db = _db()
+    cur = await db.execute("DELETE FROM bot_state WHERE key = ? RETURNING value", (key,))
+    row = await cur.fetchone()
+    await db.commit()
+    return row["value"] if row else None
+
+
+async def purge_expired_state(prefix: str, now: int) -> int:
+    """Drop rows under `prefix` whose value (an expiry epoch) is in the past."""
+    db = _db()
+    cur = await db.execute(
+        "DELETE FROM bot_state WHERE substr(key, 1, ?) = ? AND CAST(value AS INTEGER) < ?",
+        (len(prefix), prefix, now),
+    )
+    await db.commit()
+    return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# dashboard queries
+# ---------------------------------------------------------------------------
+
+
+async def count_open_pending() -> int:
+    cur = await _db().execute(
+        "SELECT COUNT(*) AS n FROM pending_replies WHERE status = 'pending' AND expires_at > ?",
+        (int(time.time()),),
+    )
+    row = await cur.fetchone()
+    return int(row["n"]) if row else 0
+
+
+async def get_stats(now: int | None = None) -> dict[str, int]:
+    """Counts behind /stats and the dashboard Status page."""
+    db = _db()
+    now = now or int(time.time())
+
+    async def one(sql: str, *args: Any) -> int:
+        cur = await db.execute(sql, args)
+        row = await cur.fetchone()
+        return int(row["n"]) if row else 0
+
+    bot_since = (
+        "SELECT COUNT(*) AS n FROM messages "
+        "WHERE role='assistant' AND via_bot=1 AND created_at >= ?"
+    )
+    return {
+        "total_chats": await one("SELECT COUNT(DISTINCT chat_id) AS n FROM messages"),
+        "replies_today": await one(bot_since, now - 86400),
+        "replies_week": await one(bot_since, now - 7 * 86400),
+        # Approximate aborts: user msg with no via_bot=1 assistant reply within 5 min.
+        "aborted": await one(
+            """
+            SELECT COUNT(*) AS n FROM messages u
+            WHERE u.role = 'user'
+              AND NOT EXISTS (
+                SELECT 1 FROM messages a
+                WHERE a.conn_id = u.conn_id AND a.chat_id = u.chat_id
+                  AND a.role = 'assistant' AND a.via_bot = 1
+                  AND a.created_at BETWEEN u.created_at AND u.created_at + 300
+              )
+            """
+        ),
+        "pending": await count_open_pending(),
+    }
+
+
+async def recent_bot_replies(limit: int) -> list[dict[str, Any]]:
+    cur = await _db().execute(
+        "SELECT chat_id, content, created_at FROM messages "
+        "WHERE role = 'assistant' AND via_bot = 1 ORDER BY id DESC LIMIT ?",
+        (limit,),
+    )
+    return [dict(r) for r in await cur.fetchall()]
+
+
+async def list_connections() -> list[dict[str, Any]]:
+    """The owner's business connections, newest first (never a stranger's)."""
+    cur = await _db().execute(
+        "SELECT * FROM connections WHERE owner_user_id = ? ORDER BY updated_at DESC",
+        (settings.owner_user_id,),
+    )
+    return [dict(r) for r in await cur.fetchall()]
+
+
+async def list_chats() -> list[dict[str, Any]]:
+    """Every chat that has messaged the owner, newest first, with its contact row."""
+    cur = await _db().execute(
+        """
+        SELECT m.chat_id, MAX(m.created_at) AS last_seen, COUNT(*) AS msg_count,
+               o.relationship, o.nickname, o.paused,
+               o.tg_first_name, o.tg_last_name, o.tg_username
+        FROM messages m
+        LEFT JOIN contact_overrides o ON o.chat_id = m.chat_id AND o.conn_id = m.conn_id
+        WHERE m.role = 'user'
+        GROUP BY m.chat_id
+        ORDER BY last_seen DESC
+        """
+    )
+    return [dict(r) for r in await cur.fetchall()]
+
+
+async def list_open_pending() -> list[dict[str, Any]]:
+    cur = await _db().execute(
+        "SELECT * FROM pending_replies WHERE status = 'pending' AND expires_at > ? "
+        "ORDER BY created_at",
+        (int(time.time()),),
+    )
+    return [dict(r) for r in await cur.fetchall()]

@@ -38,23 +38,24 @@ Voice notes are transcribed first and then take the same path. Voice notes over 
 ## Setup
 
 1. Create the bot. In [@BotFather](https://t.me/BotFather) run `/newbot` and save the token. Then go to `/mybots`, pick your bot, open **Bot Settings > Business Mode** and enable it.
-2. Get your numeric Telegram user id, for example from [@userinfobot](https://t.me/userinfobot).
-3. Configure:
+2. Get an [OpenRouter](https://openrouter.ai/keys) API key.
+3. Install and run the setup wizard:
    ```bash
    git clone https://github.com/sepehr071/tg-secretary.git
    cd tg-secretary
-   cp .env.example .env
-   # edit .env: TG_BOT_TOKEN, OPENROUTER_API_KEY, OWNER_USER_ID, OWNER_FIRST_NAME
-   ```
-4. Install and run:
-   ```bash
    uv sync
-   uv run python -m secretary
+   uv run python -m secretary.setup
    ```
+   The wizard checks the bot token (and that Business Mode is on) and the API key, proves you own the bot by having you tap a one-time `/start` link, and writes `.env`. Re-running it is safe: Enter keeps each current value and the old `.env` is backed up. On Ubuntu, `./scripts/setup-ubuntu.sh` installs everything and runs the wizard for you.
+4. Start it: `pm2 start ecosystem.config.cjs`, or `uv run python -m secretary` without pm2.
 5. Connect it to your account. In the Telegram app open **Settings > Business > Chatbots**, enter your bot's username, and give it the **reply to messages** and **read messages** rights. Choose which chats it may access.
 6. Send `/help` to your bot in a direct message to see the owner commands. The bot DMs you when the business connection is added or removed, and warns you if required rights are missing.
 
-New chats start out untagged and use the `unknown` persona. Tag your contacts with `/who` (`/senders` lists recent chat ids).
+New chats start out untagged and use the `unknown` persona. Tag your contacts with `/who` (`/senders` lists recent chat ids), or in the dashboard.
+
+## Dashboard
+
+The bot serves a web dashboard on `127.0.0.1:8780` (set `DASHBOARD_PORT` to change it, `DASHBOARD_ENABLED=false` to turn it off). Send `/dashboard` to your bot to get a one-time login link. When the bot runs on a server, open a tunnel from your computer first: `ssh -L 8780:127.0.0.1:8780 user@server`. The dashboard covers live settings, config, business-connection status, contacts (relationship, notes, prompt files, memory), persona prompts and the approval queue. It is never exposed publicly.
 
 ## Prompt customization
 

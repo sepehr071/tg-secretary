@@ -33,5 +33,9 @@ class Settings(BaseSettings):
     extractor_model: str = "google/gemini-3.1-flash-lite"
     prompts_dir: Path = Path("./prompts")
 
+    # Owner web dashboard, served by the bot on 127.0.0.1 only (reach it over `ssh -L`).
+    dashboard_enabled: bool = True
+    dashboard_port: int = 8780
+
 
 settings = Settings()  # type: ignore[call-arg]

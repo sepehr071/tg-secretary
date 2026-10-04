@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Prompts</h1>
+<p>About me goes into every reply. Each persona applies to contacts tagged with that relationship. Write <code>{owner_first_name}</code> where your name goes.</p>
+{% for p in items %}
+<details class="card" {{ "open" if loop.first }}>
+  <summary><strong>{{ p.name }}</strong> <small>{{ p.source }}</small></summary>
+  <form method="post" action="/prompts/{{ p.name }}">
+    <textarea name="text" rows="14" dir="auto">{{ p.text }}</textarea>
+    <button>Save</button> <small>Empty deletes your file{% if p.name != "about_me" %}, so the example applies again{% else %} (template: prompts/about_me.example.txt){% endif %}.</small>
+  </form>
+</details>
+{% endfor %}
+{% endblock %}

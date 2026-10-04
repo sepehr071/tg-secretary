@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -17,6 +17,7 @@ from telegram.ext import (
 
 from . import db, llm, memory, prompts
 from .config import settings
+from .dashboard.auth import create_login_token
 from .prompts import load_system_prompt
 
 log = logging.getLogger(__name__)
@@ -196,49 +197,12 @@ async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def on_stats(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user is None or update.effective_user.id != settings.owner_user_id:
         return
-    conn = db._db()
-    now = int(time.time())
-    day_ago = now - 86400
-    week_ago = now - 7 * 86400
-
-    def _count(row) -> int:
-        return int(row["n"]) if row else 0
-
-    cur = await conn.execute("SELECT COUNT(DISTINCT chat_id) AS n FROM messages")
-    total_chats = _count(await cur.fetchone())
-
-    cur = await conn.execute(
-        "SELECT COUNT(*) AS n FROM messages WHERE role='assistant' AND via_bot=1 AND created_at >= ?",
-        (day_ago,),
-    )
-    replies_today = _count(await cur.fetchone())
-
-    cur = await conn.execute(
-        "SELECT COUNT(*) AS n FROM messages WHERE role='assistant' AND via_bot=1 AND created_at >= ?",
-        (week_ago,),
-    )
-    replies_week = _count(await cur.fetchone())
-
-    # Approximate aborts: user msg with no via_bot=1 assistant reply within 5 min.
-    cur = await conn.execute(
-        """
-        SELECT COUNT(*) AS n FROM messages u
-        WHERE u.role = 'user'
-          AND NOT EXISTS (
-            SELECT 1 FROM messages a
-            WHERE a.conn_id = u.conn_id AND a.chat_id = u.chat_id
-              AND a.role = 'assistant' AND a.via_bot = 1
-              AND a.created_at BETWEEN u.created_at AND u.created_at + 300
-          )
-        """
-    )
-    aborted = _count(await cur.fetchone())
-
+    s = await db.get_stats()
     text = (
-        f"total chats: {total_chats}\n"
-        f"replies today: {replies_today}\n"
-        f"replies this week: {replies_week}\n"
-        f"aborted (approx, no reply within 5min): {aborted}"
+        f"total chats: {s['total_chats']}\n"
+        f"replies today: {s['replies_today']}\n"
+        f"replies this week: {s['replies_week']}\n"
+        f"aborted (approx, no reply within 5min): {s['aborted']}"
     )
     await _reply(update, text)
 
@@ -650,7 +614,7 @@ async def _record_sent(pending: dict[str, Any], text: str, sent_msg_id: int | No
 
 
 async def _resolve_pending(
-    ctx: ContextTypes.DEFAULT_TYPE, pid: int, status: str, text: str | None = None
+    bot: Any, pid: int, status: str, text: str | None = None
 ) -> str:
     """Send (approved/edited) or skip a pending draft. Returns a line for the owner.
     `text` overrides the draft for edits."""
@@ -665,7 +629,7 @@ async def _resolve_pending(
         return f"skipped pending #{pid}"
     body = text if text is not None else pending["draft"]
     try:
-        sent = await ctx.bot.send_message(
+        sent = await bot.send_message(
             chat_id=pending["chat_id"],
             text=body,
             business_connection_id=pending["conn_id"],
@@ -686,7 +650,7 @@ async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     pid = _extract_pending_id(msg.text)
     if pid is None:
         return
-    await _reply(update, await _resolve_pending(ctx, pid, "approved"))
+    await _reply(update, await _resolve_pending(ctx.bot, pid, "approved"))
 
 
 async def on_hitl_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -703,7 +667,7 @@ async def on_hitl_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
     pid = _parse_int(parts[2])
     if pid is None:
         return
-    result = await _resolve_pending(ctx, pid, "approved" if parts[1] == "approve" else "skipped")
+    result = await _resolve_pending(ctx.bot, pid, "approved" if parts[1] == "approve" else "skipped")
     # Keep the original DM text and append the outcome. Buttons go away once the
     # draft is handled, but stay after a failed send (draft is pending again).
     original = getattr(q.message, "text", None) or ""
@@ -724,7 +688,7 @@ async def on_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     pid = _extract_pending_id(msg.text)
     if pid is None:
         return
-    await _reply(update, await _resolve_pending(ctx, pid, "edited", parts[1].strip()))
+    await _reply(update, await _resolve_pending(ctx.bot, pid, "edited", parts[1].strip()))
 
 
 async def on_skip(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -736,7 +700,7 @@ async def on_skip(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     pid = _extract_pending_id(msg.text)
     if pid is None:
         return
-    await _reply(update, await _resolve_pending(ctx, pid, "skipped"))
+    await _reply(update, await _resolve_pending(ctx.bot, pid, "skipped"))
 
 
 async def on_undo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -833,6 +797,7 @@ Tools:
  /pending — list outstanding HITL drafts
  /undo <chat_id> — delete the bot's last auto-reply in that chat
  /backup — consistent snapshot of secretary.db to a timestamped file
+ /dashboard — one-time login link for the web dashboard
 
 HITL replies (in pending DM — or tap Send / Edit / Skip):
  /approve_<id>  /edit_<id> <text>  /skip_<id>
@@ -1283,6 +1248,23 @@ async def on_backup(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"💾 db backed up → {dst.name} ({size_kb} KB)")
 
 
+async def on_dashboard(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply with a one-time dashboard login link (valid 1 hour)."""
+    if not _is_owner(update) or update.effective_message is None:
+        return
+    if not settings.dashboard_enabled:
+        await _reply(update, "dashboard is off (DASHBOARD_ENABLED=false in .env)")
+        return
+    port = settings.dashboard_port
+    token = await create_login_token()
+    await update.effective_message.reply_text(
+        "One-time dashboard login, valid 1 hour:\n"
+        f"http://127.0.0.1:{port}/login#t={token}\n\n"
+        f"Bot on a server? Open a tunnel first:\nssh -L {port}:127.0.0.1:{port} <user>@<server>",
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
 # ---------------------------------------------------------------------------
 # registration
 # ---------------------------------------------------------------------------
@@ -1328,6 +1310,7 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("memory_purge", on_memory_purge))
     app.add_handler(CommandHandler("backup", on_backup))
     app.add_handler(CommandHandler("undo", on_undo))
+    app.add_handler(CommandHandler("dashboard", on_dashboard))
 
     app.add_handler(MessageHandler(filters.Regex(r"^/approve_\d+$"), on_approve))
     app.add_handler(MessageHandler(filters.Regex(r"^/edit_\d+(\s|$)"), on_edit))
