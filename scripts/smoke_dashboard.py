@@ -450,6 +450,32 @@ async def check_credit_notice() -> None:
     assert await handlers._credit_notice_due() is True
 
 
+async def check_update_intake() -> None:
+    import asyncio as _a
+    from telegram import Update
+    q: _a.Queue = _a.Queue()
+    upd = {"update_id": 77, "message": {"message_id": 1, "date": 0,
+           "chat": {"id": 111, "type": "private"}, "from": {"id": 111, "is_bot": False, "first_name": "O"},
+           "text": "/pause"}}
+    old = (settings.hosted, settings.dashboard_proxy_secret)
+    settings.hosted, settings.dashboard_proxy_secret = True, "p"
+    try:
+        app = create_app(BOT, lambda: None, env_path=ENV, update_queue=q)
+        async with client(app) as c:
+            assert (await c.post("/_tg/update", json=upd)).status_code == 403
+            r = await c.post("/_tg/update", json=upd, headers={"x-platform-auth": "p"})
+            assert r.status_code == 200, r.status_code
+        got = q.get_nowait()
+        assert isinstance(got, Update) and got.update_id == 77 and got.message.text == "/pause"
+    finally:
+        settings.hosted, settings.dashboard_proxy_secret = old
+    # Not hosted: the endpoint does not exist.
+    app = create_app(BOT, lambda: None, env_path=ENV, update_queue=q)
+    async with client(app) as c:
+        r = await c.post("/_tg/update", json=upd, headers=ORIGIN)
+        assert r.status_code in (401, 404), r.status_code
+
+
 async def main() -> None:
     await db.init_db()
     try:
@@ -467,6 +493,7 @@ async def main() -> None:
         await check_root_path()
         await check_persian()
         await check_credit_notice()
+        await check_update_intake()
     finally:
         await db.close_db()  # an open aiosqlite thread would hang the process on failure
     print("smoke_dashboard OK")

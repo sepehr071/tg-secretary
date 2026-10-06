@@ -36,12 +36,12 @@ async def main() -> None:
     # Concurrent updates: the reply pipeline sleeps for the race-guard delay, so
     # serial processing would hide the owner's own messages (and commands) until
     # the delay ended. Bursts in one chat are collapsed in handlers._chat_gen.
-    app = (
-        Application.builder()
-        .token(settings.tg_bot_token)
-        .concurrent_updates(True)
-        .build()
-    )
+    builder = Application.builder().token(settings.tg_bot_token).concurrent_updates(True)
+    if settings.hosted:
+        builder = builder.updater(None)  # hosting router feeds updates via /_tg/update
+        if not settings.dashboard_enabled:
+            log.error("Hosted mode needs the dashboard enabled: updates arrive on /_tg/update")
+    app = builder.build()
 
     app.add_handler(BusinessConnectionHandler(handlers.on_business_connection))
     app.add_handler(
@@ -75,18 +75,18 @@ async def main() -> None:
 
     await app.initialize()
     await app.start()
-    assert app.updater is not None
-    await app.updater.start_polling(
-        allowed_updates=[
-            "business_connection",
-            "business_message",
-            "edited_business_message",
-            "deleted_business_messages",
-            "message",
-            "callback_query",
-        ],
-        drop_pending_updates=False,
-    )
+    if app.updater is not None:
+        await app.updater.start_polling(
+            allowed_updates=[
+                "business_connection",
+                "business_message",
+                "edited_business_message",
+                "deleted_business_messages",
+                "message",
+                "callback_query",
+            ],
+            drop_pending_updates=False,
+        )
 
     log.info("Secretary bot online. Model=%s. Ctrl+C to stop.", settings.openrouter_model)
 
@@ -108,8 +108,8 @@ async def main() -> None:
     dash_server = None
     dash_task = None
     if settings.dashboard_enabled:
-        dash_server = make_server(create_app(app.bot, _request_stop), settings.dashboard_port,
-                                  settings.dashboard_host)
+        dash_server = make_server(create_app(app.bot, _request_stop, update_queue=app.update_queue),
+                                  settings.dashboard_port, settings.dashboard_host)
         dash_task = asyncio.create_task(run_server(dash_server))
         log.info("Dashboard on %s:%d — send /dashboard to the bot for a login link",
                  settings.dashboard_host, settings.dashboard_port)
@@ -131,7 +131,8 @@ async def main() -> None:
             await worker_task
         except (asyncio.CancelledError, Exception):  # noqa: BLE001
             pass
-        await app.updater.stop()
+        if app.updater is not None:
+            await app.updater.stop()
         await app.stop()
         await app.shutdown()
         await close_db()

@@ -1,6 +1,7 @@
 """Owner dashboard: a FastAPI app served inside the bot process on 127.0.0.1."""
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
@@ -12,6 +13,7 @@ import uvicorn
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from telegram import Update
 
 from .. import db
 from ..config import settings
@@ -23,9 +25,11 @@ log = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve().parent
 
 
-def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_PATH) -> FastAPI:
+def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_PATH,
+               update_queue: asyncio.Queue | None = None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.bot = bot
+    app.state.update_queue = update_queue
     app.state.request_stop = request_stop
     app.state.env_path = env_path
     app.state.started_at = time.time()
@@ -78,6 +82,15 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
         resp = RedirectResponse(settings.dashboard_root_path + "/login", status_code=303)
         resp.delete_cookie(auth.COOKIE, path="/")
         return resp
+
+    if settings.hosted:
+        @app.post("/_tg/update")
+        async def tg_update(request: Request):
+            # The hosting router is the only poller of the shared bot; it pushes
+            # this tenant's updates here (guard above already checked X-Platform-Auth).
+            data = await request.json()
+            await request.app.state.update_queue.put(Update.de_json(data, request.app.state.bot))
+            return PlainTextResponse("ok")
 
     app.include_router(pages.router)
     app.include_router(contacts.router)
