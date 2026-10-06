@@ -244,5 +244,10 @@ async def get_payment(client_ref: str) -> dict[str, Any] | None:
     return await _one("SELECT * FROM payments WHERE client_ref=?", client_ref)
 
 
+async def payments_total(tenant_id: int) -> float:
+    row = await _one("SELECT COALESCE(SUM(amount_usd), 0) AS s FROM payments WHERE tenant_id=?", tenant_id)
+    return float(row["s"]) if row else 0.0
+
+
 async def mark_payment_applied(client_ref: str) -> None:
     await _write("UPDATE payments SET applied=1 WHERE client_ref=?", client_ref)

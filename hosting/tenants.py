@@ -19,7 +19,7 @@ _locks: dict[int, asyncio.Lock] = {}
 
 
 def tenant_dir(tid: int) -> Path:
-    return settings.tenants_root / str(tid)
+    return (settings.tenants_root / str(tid)).resolve()
 
 
 def _ensure_dir(tid: int) -> Path:
@@ -44,7 +44,13 @@ def write_env(tid: int, values: dict[str, str]) -> None:
 
 async def attach_bot(tenant: dict, token: str, managed: bool) -> dict:
     me = await tg.call(token, "getMe")
+    old_id = tenant["bot_id"]
     await db.set_tenant_bot(tenant["id"], me["id"], me.get("username", ""), managed)
+    if tenant["managed"] and old_id and old_id != me["id"]:
+        try:  # the replaced managed bot's stored token must stop working
+            await tg.call(settings.platform_bot_token, "replaceManagedBotToken", user_id=old_id)
+        except Exception as e:  # noqa: BLE001
+            log.warning("old managed bot token not revoked: %s", type(e).__name__)
     user = await db.get_user(tenant["owner_tg_id"])
     write_env(tenant["id"], {
         "TG_BOT_TOKEN": token, "OWNER_USER_ID": str(tenant["owner_tg_id"]),
@@ -80,10 +86,10 @@ async def ensure_key(tid: int) -> str:
     return key_hash
 
 
-async def add_credit(tid: int, amount_usd: float) -> None:
+async def sync_limit(tid: int) -> None:
+    """Set the key limit to the absolute sum of the tenant's payments; safe to repeat."""
     h = await ensure_key(tid)
-    info = await openrouter.get_key(h)
-    await openrouter.set_limit(h, float(info.get("limit") or 0) + amount_usd)
+    await openrouter.set_limit(h, await db.payments_total(tid))
     await db.update_tenant(tid, warned_at_limit=None)
 
 
@@ -114,7 +120,7 @@ async def top_up(tid: int, amount_usd: float, paid_text: str, note: str,
         inserted = await db.add_payment(tid, amount_usd, paid_text, note, admin_tg_id, client_ref)
         p = await db.get_payment(client_ref)
         if p and not p["applied"]:
-            await add_credit(tid, p["amount_usd"])
+            await sync_limit(tid)
             await db.mark_payment_applied(client_ref)
         t = await db.get_tenant(tid)
         if t and t["status"] == "awaiting_credit" and t["profile_done"]:
@@ -123,15 +129,29 @@ async def top_up(tid: int, amount_usd: float, paid_text: str, note: str,
 
 
 async def delete(tid: int) -> None:
+    """Best-effort external cleanup: a failing step is recorded, never blocks removing the secrets."""
     t = await db.get_tenant(tid)
     if t is None:
         return
-    await asyncio.to_thread(pm2.delete, tid)
+    errors = []
+    try:
+        await asyncio.to_thread(pm2.delete, tid)
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"pm2 delete: {type(e).__name__}")
     if t["or_key_hash"]:
-        await openrouter.disable_key(t["or_key_hash"])
+        try:
+            await openrouter.disable_key(t["or_key_hash"])
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"disable key: {type(e).__name__}")
     if t["managed"] and t["bot_id"]:
         # Kill the old token so nothing we stored can still drive the bot.
-        await tg.call(settings.platform_bot_token, "replaceManagedBotToken", user_id=t["bot_id"])
+        try:
+            await tg.call(settings.platform_bot_token, "replaceManagedBotToken", user_id=t["bot_id"])
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"revoke bot token: {type(e).__name__}")
+    if errors:  # type names only: exception text can carry URLs
+        log.warning("tenant %s delete incomplete: %s", tid, "; ".join(errors))
+        await db.update_tenant(tid, last_error="delete: " + "; ".join(errors))
     try:
         shutil.rmtree(tenant_dir(tid))
     except FileNotFoundError:

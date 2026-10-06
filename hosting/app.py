@@ -179,7 +179,7 @@ def create_app() -> FastAPI:
     async def bot_page(request: Request):
         if await next_step(uid(request)) == "consent":
             return RedirectResponse("/onboard/consent", status_code=303)
-        t = await db.get_tenant_by_owner(uid(request))
+        t = await _tenant_for(request)  # the managed_bot update needs a tenant row to attach to
         return render(request, "onboard_bot.html", managed_link=_managed_link(request),
                       bot_username=(t or {}).get("bot_username") or "",
                       needs_secretary=bool(t and t["bot_id"]) and not await _can_business(t))
@@ -226,8 +226,11 @@ def create_app() -> FastAPI:
         if t["status"] == "draft":
             await db.update_tenant(t["id"], status="awaiting_credit")
         try:
-            if settings.trial_credit_usd > 0 and not t["or_key_hash"]:
-                await tenants.add_credit(t["id"], settings.trial_credit_usd)
+            if settings.trial_credit_usd > 0:  # re-run every time: a failed earlier sync must not leave limit 0
+                ref = f"trial-user-{t['owner_tg_id']}"
+                await db.add_payment(t["id"], settings.trial_credit_usd, "trial", "", 0, ref)
+                await tenants.sync_limit(t["id"])
+                await db.mark_payment_applied(ref)
             t = await db.get_tenant(t["id"])
             if t["or_key_hash"]:  # credit exists (trial, or the admin paid before the profile was done)
                 await tenants.activate(t["id"])

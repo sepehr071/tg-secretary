@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
-from .config import settings
+from .config import HostingSettings, settings
 
 RUN = subprocess.run  # tests swap this
 
@@ -19,7 +20,9 @@ def name(tid: int) -> str:
 
 
 def _pm2(*args: str) -> str:
-    r = RUN(["pm2", *args], capture_output=True, text=True, timeout=60)
+    # Tenants must not inherit the hosting secrets (OPENROUTER_MGMT_KEY, DB_PATH, ...) from our env.
+    env = {k: v for k, v in os.environ.items() if k.lower() not in HostingSettings.model_fields}
+    r = RUN(["pm2", *args], capture_output=True, text=True, timeout=60, env=env)
     if r.returncode != 0:
         raise Pm2Error((r.stderr or r.stdout).strip()[:300])
     return r.stdout

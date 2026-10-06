@@ -52,8 +52,10 @@ async def check_credit_once() -> None:
         except openrouter.OpenRouterError as e:
             log.warning("credit check failed for tenant %s: %s", t["id"], e)
             continue
+        if info.get("limit_remaining") is None:
+            continue
         limit = float(info.get("limit") or 0)
-        remaining = float(info.get("limit_remaining") or 0)
+        remaining = float(info["limit_remaining"])
         if limit and remaining < 0.2 * limit and t["warned_at_limit"] != limit:
             await _say(t["owner_tg_id"], f"اعتبار منشی شما رو به اتمام است (باقی\u200cمانده: ${remaining:.2f}). "
                                          f"برای شارژ: {settings.public_url}/account")

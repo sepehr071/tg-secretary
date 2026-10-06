@@ -616,6 +616,171 @@ async def check_platform_bot() -> None:
     tg.TRANSPORT = None
 
 
+def _or_mock(state: dict):
+    """OpenRouter mock: records every limit PATCH body; state['timeout_once'] -> apply then time out."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content or b"{}")
+        state.setdefault("n", 0)
+        if req.method == "POST":
+            state["n"] += 1
+            return httpx.Response(200, json={"key": f"sk-or-v1-{state['n']}", "data": {"hash": f"hx{state['n']}"}})
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": {"limit": 0, "usage": 0}})
+        if state.get("fail_all"):
+            return httpx.Response(500, json={"error": {"message": "down"}})
+        if "limit" in body:
+            state.setdefault("patches", []).append(body["limit"])
+            if state.pop("timeout_once", False):
+                raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json={"data": {}})
+    return handler
+
+
+@check
+async def check_managed_attach_route() -> None:
+    """New user -> consent -> GET /onboard/bot creates the tenant, so the managed_bot update attaches."""
+    pm2.RUN = fake_run
+    app = happ.create_app()
+    await db.upsert_user(60, "Mani", "mani")
+    cookie = await db.create_session(60)
+    handler_calls = []
+
+    def tg_handler(req: httpx.Request) -> httpx.Response:
+        method = req.url.path.rsplit("/", 1)[1]
+        handler_calls.append(method)
+        if method == "getManagedBotToken":
+            return httpx.Response(200, json={"ok": True, "result": "960:managed"})
+        if method == "getMe":
+            return httpx.Response(200, json={"ok": True, "result": {"id": 960, "username": "m_bot"}})
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    tg.TRANSPORT = httpx.MockTransport(tg_handler)
+    async with web(app, cookie) as c:
+        await c.post("/onboard/consent", data={"accept": "1"})
+        assert await db.get_tenant_by_owner(60) is None
+        assert (await c.get("/onboard/bot")).status_code == 200
+    assert await db.get_tenant_by_owner(60) is not None            # created by the page, not by the check
+    await pbot.handle_update({"update_id": 3, "managed_bot": {"user": {"id": 60}, "bot": {"id": 960, "username": "m_bot"}}})
+    t = await db.get_tenant_by_owner(60)
+    assert t["bot_id"] == 960 and t["managed"] == 1, t
+    tg.TRANSPORT = None
+
+
+@check
+async def check_delete_best_effort() -> None:
+    import subprocess
+    app = happ.create_app()
+    await db.upsert_user(61, "Del", None)
+    tid = await db.create_tenant(61)
+    await db.set_tenant_bot(tid, 961, "del_bot", managed=True)
+    tenants.write_env(tid, {"TG_BOT_TOKEN": "961:secret"})
+    await db.update_tenant(tid, or_key_hash="hdel")
+    openrouter.TRANSPORT = httpx.MockTransport(_or_mock({"fail_all": True}))
+    tg.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(400, json={"ok": False, "description": "nope"}))
+    pm2.RUN = lambda args, **kw: subprocess.CompletedProcess(args, 1, stdout="", stderr="boom")
+    async with web(app, await db.create_session(61)) as c:
+        r = await c.post("/account/delete", data={"confirm": "حذف"})
+        assert r.status_code == 303, r.status_code
+    assert not tenants.tenant_dir(tid).exists()
+    assert await db.get_tenant_by_owner(61) is None
+    pm2.RUN = fake_run
+    openrouter.TRANSPORT = None
+    tg.TRANSPORT = None
+
+
+@check
+async def check_idempotent_credit() -> None:
+    pm2.RUN = fake_run
+    st: dict = {}
+    openrouter.TRANSPORT = httpx.MockTransport(_or_mock(st))
+    await db.upsert_user(62, "Pay2", None)
+    tid = await db.create_tenant(62)
+    await db.set_tenant_bot(tid, 962, "pay2_bot", managed=False)
+    st["timeout_once"] = True                                       # PATCH lands, response lost
+    try:
+        await tenants.top_up(tid, 3.0, "", "", 1, "i-1")
+        raise AssertionError("timeout must raise")
+    except httpx.TimeoutException:
+        pass
+    await tenants.top_up(tid, 3.0, "", "", 1, "i-1")                # retry same ref
+    assert st["patches"][-1] == 3.0, st                             # absolute, not 6.0
+    await tenants.top_up(tid, 2.0, "", "", 1, "i-2")
+    assert st["patches"][-1] == 5.0, st
+    assert await db.payments_total(tid) == 5.0
+    assert not hasattr(tenants, "add_credit")
+
+    # Trial: one per user, even after delete + re-onboard.
+    settings.trial_credit_usd = 2.0
+    try:
+        app = happ.create_app()
+        form = {"first_name": "T", "about": "x", "style": "", "never": ""}
+        await db.upsert_user(63, "Trial", None)
+        await db.add_consent(63, settings.consent_version)
+        for i, expect in enumerate((2.0, 0.0)):
+            t = await db.create_tenant(63)
+            await db.set_tenant_bot(t, 9630 + i, f"trial{i}_bot", managed=False)
+            async with web(app, await db.create_session(63)) as c:
+                assert (await c.post("/onboard/profile", data=form)).status_code == 303
+            assert st["patches"][-1] == expect, (i, st)
+            await tenants.delete(t)
+    finally:
+        settings.trial_credit_usd = 0.0
+    openrouter.TRANSPORT = None
+
+
+@check
+async def check_minor_fixes() -> None:
+    import subprocess
+    # 4. absolute tenant dir
+    old_root = settings.tenants_root
+    settings.tenants_root = Path("rel_tenants")
+    try:
+        assert tenants.tenant_dir(7).is_absolute()
+    finally:
+        settings.tenants_root = old_root
+
+    # 5. token pasted over a managed bot revokes the old managed token
+    calls = []
+
+    def tg_handler(req: httpx.Request) -> httpx.Response:
+        method = req.url.path.rsplit("/", 1)[1]
+        calls.append((method, json.loads(req.content or b"{}")))
+        return httpx.Response(200, json={"ok": True, "result": {"id": 971, "username": "new_bot"}})
+
+    tg.TRANSPORT = httpx.MockTransport(tg_handler)
+    await db.upsert_user(64, "Over", None)
+    tid = await db.create_tenant(64)
+    await db.set_tenant_bot(tid, 970, "old_bot", managed=True)
+    await tenants.attach_bot(await db.get_tenant(tid), "971:tok", managed=False)
+    assert ("replaceManagedBotToken", {"user_id": 970}) in calls, calls
+    t = await db.get_tenant(tid)
+    assert t["bot_id"] == 971 and t["managed"] == 0
+    tg.TRANSPORT = None
+
+    # 6. pm2 subprocess env carries no hosting secrets
+    seen = {}
+
+    def spy(args, **kw):
+        seen.update(kw)
+        return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+    pm2.RUN = spy
+    pm2.status()
+    env = seen["env"]
+    assert "OPENROUTER_MGMT_KEY" not in env and "DB_PATH" not in env and "PLATFORM_BOT_TOKEN" not in env
+    assert "PATH" in env or "Path" in env
+    pm2.RUN = fake_run
+
+    # 7. missing limit_remaining: no spurious warning
+    sent = []
+    tg.TRANSPORT = httpx.MockTransport(lambda r: (sent.append(r.url.path), httpx.Response(200, json={"ok": True, "result": True}))[1])
+    openrouter.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={"data": {"limit": 10, "usage": 0}}))
+    await db.update_tenant(tid, status="running", or_key_hash="hnone", warned_at_limit=None)
+    await pbot.check_credit_once()
+    assert not [p for p in sent if p.endswith("sendMessage")], sent
+    openrouter.TRANSPORT = None
+    tg.TRANSPORT = None
+
+
 async def main() -> None:
     await db.init(settings.db_path)
     try:
