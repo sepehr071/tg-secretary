@@ -1,4 +1,6 @@
 .env
+hosting.env
+tenants/
 .venv/
 __pycache__/
 *.pyc
