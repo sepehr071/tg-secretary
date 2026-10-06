@@ -412,6 +412,106 @@ async def check_pay_before_profile() -> None:
 
 
 @check
+async def check_hardening() -> None:
+    import subprocess
+    pm2.RUN = fake_run
+    patches: list[dict] = []
+    or_state = {"limit": 0.0}
+
+    def or_handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content or b"{}")
+        if req.method == "POST":
+            return httpx.Response(200, json={"key": "sk-or-v1-h", "data": {"hash": "hh"}})
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": {"limit": or_state["limit"], "usage": 0}})
+        if "limit" in body:
+            or_state["limit"] = body["limit"]
+            patches.append(body)
+        return httpx.Response(200, json={"data": {}})
+
+    openrouter.TRANSPORT = httpx.MockTransport(or_handler)
+    app = happ.create_app()
+    form = {"first_name": "N", "about": "x", "style": "", "never": ""}
+
+    # 1. Malformed id claim: 400 and no session cookie, not a 500.
+    claims = {"iss": "https://oauth.telegram.org", "aud": "cid", "exp": 4e9, "id": "abc", "name": "Bad"}
+    oidc.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={"id_token": _jwt(claims)}))
+    async with web(app) as c:
+        loc = (await c.get("/login")).headers["location"]
+        state = loc.split("state=")[1].split("&")[0]
+        r = await c.get(f"/auth/callback?code=abc&state={state}")
+        assert r.status_code == 400 and happ.COOKIE not in r.cookies, r.status_code
+    oidc.TRANSPORT = None
+
+    # 2 + 3. Stopped tenant keeps its state on profile edit; stale consent bounces to consent.
+    await db.upsert_user(41, "Sina", None)
+    await db.add_consent(41, settings.consent_version)
+    t41 = await db.create_tenant(41)
+    await db.set_tenant_bot(t41, 941, "sina_bot", managed=False)
+    await tenants.ensure_key(t41)
+    await db.update_tenant(t41, status="stopped", profile_done=1)
+    cookie41 = await db.create_session(41)
+    PM2_CALLS.clear()
+    async with web(app, cookie41) as c:
+        r = await c.post("/onboard/profile", data=form)
+        assert r.status_code == 303
+        assert (await db.get_tenant(t41))["status"] == "stopped"
+        assert not any(call[0] in ("start", "restart") for call in PM2_CALLS), PM2_CALLS
+        old = settings.consent_version
+        settings.consent_version = old + 1
+        try:
+            r = await c.post("/onboard/profile", data=form)
+            assert r.headers["location"] == "/onboard/consent", r.headers["location"]
+            r = await c.get("/onboard/profile")
+            assert r.headers["location"] == "/onboard/consent", r.headers["location"]
+        finally:
+            settings.consent_version = old
+
+    # 4. A bot owned by another tenant cannot be attached.
+    await db.upsert_user(42, "Taken", None)
+    await db.add_consent(42, settings.consent_version)
+    tg.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={
+        "ok": True, "result": {"id": 901, "username": "mina_bot", "can_connect_to_business": False}}))
+    async with web(app, await db.create_session(42)) as c:
+        r = await c.post("/onboard/bot/token", data={"token": "901:abc"})
+        assert r.status_code == 303 and "err=" in r.headers["location"], r.headers["location"]
+    assert (await db.get_tenant_by_bot(901))["owner_tg_id"] == 30
+    assert ((await db.get_tenant_by_owner(42)) or {}).get("bot_id") is None
+
+    # 5 + 6 + 8. Admin payment form: duplicate, bad amounts, bad tenant id.
+    await db.upsert_user(43, "Pay", None)
+    t43 = await db.create_tenant(43)
+    await db.set_tenant_bot(t43, 943, "pay_bot", managed=False)
+    async with web(app, await db.create_session(1)) as c:
+        pay = {"tenant_id": str(t43), "amount_usd": "5", "client_ref": "h-1"}
+        first = (await c.post("/admin/payment", data=pay)).headers["location"]
+        second = (await c.post("/admin/payment", data=pay)).headers["location"]
+        assert "msg=" in first and "msg=" in second and first != second   # second says duplicate
+        n = await db._one("SELECT COUNT(*) AS n FROM payments WHERE client_ref='h-1'")
+        assert n["n"] == 1 and patches == [{"limit": 5.0}], patches
+        for i, bad in enumerate(("0", "-3", "1001")):
+            r = await c.post("/admin/payment", data={**pay, "amount_usd": bad, "client_ref": f"h-bad{i}"})
+            assert "err=" in r.headers["location"], bad
+            assert await db.get_payment(f"h-bad{i}") is None
+        r = await c.post("/admin/payment", data={**pay, "tenant_id": "abc", "client_ref": "h-x"})
+        assert r.status_code == 303 and "err=" in r.headers["location"]
+
+        # 7. pm2 failures on restart/stop are flashed and stored, not 500.
+        await db.update_tenant(t43, status="running")
+
+        def failing_run(args, **kw):
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="boom")
+        pm2.RUN = failing_run
+        for action in ("stop", "restart"):
+            r = await c.post(f"/admin/tenant/{t43}/{action}")
+            assert r.status_code == 303 and "err=" in r.headers["location"], (action, r.headers["location"])
+        t = await db.get_tenant(t43)
+        assert t["status"] == "running" and t["last_error"], t
+    pm2.RUN = fake_run
+    openrouter.TRANSPORT = None
+
+
+@check
 async def check_amounts() -> None:
     assert happ.parse_amount("5") == 5.0
     assert happ.parse_amount("۵") == 5.0

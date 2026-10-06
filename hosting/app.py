@@ -101,13 +101,13 @@ def create_app() -> FastAPI:
                           body="لینک ورود منقضی شده؛ دوباره وارد شوید.")
         try:
             claims = await oidc.exchange(code, verifier)
+            tg_id = int(claims["id"])
+            await db.upsert_user(tg_id, str(claims.get("name") or claims.get("given_name") or ""),
+                                 claims.get("preferred_username"))
         except Exception:  # noqa: BLE001 - any failure here is "login failed" to the user
             log.exception("oidc exchange failed")
             return render(request, "error.html", 400, title="ورود ناموفق",
                           body="دوباره تلاش کنید.")
-        tg_id = int(claims["id"])
-        await db.upsert_user(tg_id, claims.get("name") or claims.get("given_name") or "",
-                             claims.get("preferred_username"))
         resp = RedirectResponse("/account", status_code=303)
         resp.set_cookie(COOKIE, await db.create_session(tg_id), max_age=db.SESSION_TTL,
                         httponly=True, secure=True, samesite="lax", path="/")
@@ -208,15 +208,21 @@ def create_app() -> FastAPI:
 
     @app.get("/onboard/profile")
     async def profile_page(request: Request):
+        if await next_step(uid(request)) == "consent":
+            return RedirectResponse("/onboard/consent", status_code=303)
         return render(request, "onboard_profile.html", first_name=request.state.user["first_name"] or "")
 
     @app.post("/onboard/profile")
     async def profile(request: Request, first_name: str = Form(""), about: str = Form(""),
                       style: str = Form(""), never: str = Form("")):
+        if await next_step(uid(request)) == "consent":
+            return RedirectResponse("/onboard/consent", status_code=303)
         t = await db.get_tenant_by_owner(uid(request))
         if t is None or not t["bot_id"]:
             return RedirectResponse("/account", status_code=303)
         await tenants.save_profile(t["id"], first_name, about, style, never)
+        if t["status"] not in ("draft", "awaiting_credit"):
+            return RedirectResponse("/account", status_code=303)  # running/stopped: profile edit only
         if t["status"] == "draft":
             await db.update_tenant(t["id"], status="awaiting_credit")
         try:
@@ -258,9 +264,13 @@ def create_app() -> FastAPI:
         return render(request, "admin.html", rows=rows)
 
     @app.post("/admin/payment")
-    async def admin_payment(request: Request, tenant_id: int = Form(...), amount_usd: str = Form(""),
+    async def admin_payment(request: Request, tenant_id: str = Form(""), amount_usd: str = Form(""),
                             paid_text: str = Form(""), note: str = Form(""), client_ref: str = Form("")):
         amount = parse_amount(amount_usd)
+        try:
+            tenant_id = int(tenant_id)
+        except ValueError:
+            return go("/admin", err="حساب نامعتبر است.")
         if amount is None or not client_ref:
             return go("/admin", err="مبلغ درست نیست.")
         try:
@@ -279,15 +289,25 @@ def create_app() -> FastAPI:
         if t is None or t["status"] not in ("running", "stopped"):
             return go("/admin", err="این حساب هنوز فعال نشده.")
         try:
-            await asyncio.to_thread(pm2.restart, tid)  # pm2 restart also revives a stopped process
-        except pm2.Pm2Error:
-            await tenants.activate(tid)  # process missing from pm2: start it (reuses key, port, secret)
+            try:
+                await asyncio.to_thread(pm2.restart, tid)  # pm2 restart also revives a stopped process
+            except pm2.Pm2Error:
+                await tenants.activate(tid)  # process missing from pm2: start it (reuses key, port, secret)
+        except Exception as e:  # noqa: BLE001 - flash it, keep the status
+            log.exception("restart failed")
+            await db.update_tenant(tid, last_error=f"restart: {e}")
+            return go("/admin", err=f"خطا: {e}")
         await db.update_tenant(tid, status="running")
         return go("/admin", msg="انجام شد.")
 
     @app.post("/admin/tenant/{tid}/stop")
     async def admin_stop(tid: int):
-        await asyncio.to_thread(pm2.stop, tid)
+        try:
+            await asyncio.to_thread(pm2.stop, tid)
+        except Exception as e:  # noqa: BLE001 - flash it, keep the status
+            log.exception("stop failed")
+            await db.update_tenant(tid, last_error=f"stop: {e}")
+            return go("/admin", err=f"خطا: {e}")
         await db.update_tenant(tid, status="stopped")
         return go("/admin", msg="متوقف شد.")
 
