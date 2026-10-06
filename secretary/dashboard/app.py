@@ -33,6 +33,13 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
+        if settings.hosted:
+            # Only the hosting proxy may talk to us; it already checked the user's
+            # session and Origin, so Host/Origin/login checks don't apply here.
+            if not auth.proxy_ok(request.headers.get("x-platform-auth")):
+                return PlainTextResponse("forbidden", status_code=403)
+            request.state.pending = await db.count_open_pending()
+            return await call_next(request)
         host = request.headers.get("host", "")
         if not auth.host_ok(host):
             return PlainTextResponse("bad host", status_code=400)

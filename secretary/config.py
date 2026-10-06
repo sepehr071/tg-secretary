@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     dashboard_public_url: str = ""
     # Tunnel command /dashboard shows; the setup wizard fills it when run over SSH.
     dashboard_ssh_hint: str = ""
+    # Hosted platform mode: the dashboard sits behind the hosting proxy, which sends
+    # X-Platform-Auth; token/key/owner fields are hidden because the platform owns them.
+    hosted: bool = False
+    dashboard_proxy_secret: str = ""
+    # URL prefix the proxy serves the dashboard under, e.g. "/app". Empty = served at /.
+    dashboard_root_path: str = ""
+    dashboard_lang: str = "en"
 
 
 settings = Settings()  # type: ignore[call-arg]

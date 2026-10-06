@@ -358,6 +358,50 @@ async def check_drafts(app) -> None:
         assert (await db.get_pending(skipped))["status"] == "skipped" and len(BOT.sent) == 2
 
 
+async def check_hosted() -> None:
+    old = (settings.hosted, settings.dashboard_proxy_secret)
+    settings.hosted, settings.dashboard_proxy_secret = True, "s3cret-proxy"
+    try:
+        app = create_app(BOT, lambda: STOPS.append(1), env_path=ENV)
+        # No header: refused, and no redirect to the login page.
+        async with client(app) as c:
+            r = await c.get("/settings")
+            assert r.status_code == 403, r.status_code
+            r = await c.get("/settings", headers={"x-platform-auth": "wrong"})
+            assert r.status_code == 403
+        hdr = {"x-platform-auth": "s3cret-proxy"}
+        # Header works even with a non-loopback Host (the proxy may forward any Host).
+        async with client(app, base="http://example.com", headers=hdr) as c:
+            r = await c.get("/settings")
+            assert r.status_code == 200, r.status_code
+            assert "TG_BOT_TOKEN" not in r.text and "OPENROUTER_API_KEY" not in r.text
+            assert "OWNER_USER_ID" not in r.text
+            assert 'action="/logout"' not in r.text
+            # Saving without the hidden fields works and never touches them.
+            r = await c.post("/settings/config", data={
+                "OPENROUTER_MODEL": "a/b", "EXTRACTOR_MODEL": "google/gemini-3.1-flash-lite",
+                "WHISPER_MODEL": "openai/whisper-large-v3", "OWNER_FIRST_NAME": "Sep",
+                "HISTORY_TURNS": "12",
+                "TG_BOT_TOKEN": "999:evil", "OWNER_USER_ID": "666",
+            })
+            assert r.status_code == 303, r.status_code
+            assert "err=" not in r.headers["location"], r.headers["location"]
+            env_text = ENV.read_text(encoding="utf-8")
+            assert "999:evil" not in env_text and "666" not in env_text
+    finally:
+        settings.hosted, settings.dashboard_proxy_secret = old
+
+
+async def check_proxy_ok_empty_secret() -> None:
+    old = settings.dashboard_proxy_secret
+    settings.dashboard_proxy_secret = ""
+    try:
+        assert not auth.proxy_ok("")      # empty secret never authenticates
+        assert not auth.proxy_ok(None)
+    finally:
+        settings.dashboard_proxy_secret = old
+
+
 async def main() -> None:
     await db.init_db()
     try:
@@ -370,6 +414,8 @@ async def main() -> None:
         await check_contacts(app)
         await check_prompts(app)
         await check_drafts(app)
+        await check_hosted()
+        await check_proxy_ok_empty_secret()
     finally:
         await db.close_db()  # an open aiosqlite thread would hang the process on failure
     print("smoke_dashboard OK")

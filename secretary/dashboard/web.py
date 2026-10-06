@@ -10,6 +10,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from ..config import settings
 from ..setup import mask
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -18,6 +19,9 @@ templates.env.filters["ts"] = lambda t: time.strftime("%Y-%m-%d %H:%M", time.loc
 
 
 def render(request: Request, name: str, status_code: int = 200, **context: Any) -> HTMLResponse:
+    # Read per request (not as Jinja globals) so a live settings change shows up.
+    context.setdefault("hosted", settings.hosted)
+    context.setdefault("root", settings.dashboard_root_path)
     return templates.TemplateResponse(request, name, context, status_code=status_code)
 
 

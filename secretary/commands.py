@@ -1265,6 +1265,9 @@ async def on_dashboard(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Reply with a one-time dashboard login link (valid 1 hour)."""
     if not _is_owner(update) or update.effective_message is None:
         return
+    if settings.hosted:
+        await update.effective_message.reply_text("Open your dashboard on the website (حساب کاربری > داشبورد).")
+        return
     if not settings.dashboard_enabled:
         await _reply(update, "dashboard is off (DASHBOARD_ENABLED=false in .env)")
         return

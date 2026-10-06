@@ -40,6 +40,12 @@ def origin_ok(origin: str | None, host: str) -> bool:
     return origin in (f"http://{host}", f"https://{host}")
 
 
+def proxy_ok(header: str | None) -> bool:
+    """Hosted mode: the hosting proxy proves itself with the per-tenant shared secret."""
+    secret = settings.dashboard_proxy_secret
+    return bool(secret) and secrets.compare_digest((header or "").encode(), secret.encode())
+
+
 async def create_login_token(ttl: int = LOGIN_TTL) -> str:
     token = secrets.token_urlsafe(32)
     await db.set_state(LOGIN_PREFIX + _hash(token), str(int(time.time()) + ttl))

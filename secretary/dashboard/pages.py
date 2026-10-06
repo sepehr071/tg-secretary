@@ -160,6 +160,8 @@ async def save_config(request: Request):
         "HISTORY_TURNS": str(settings.history_turns),
         "OWNER_USER_ID": str(settings.owner_user_id),
     }
+    if settings.hosted:
+        current.pop("OWNER_USER_ID")
     changes: dict[str, str] = {}
     for key, old in current.items():
         new = str(form.get(key, "")).strip()
@@ -180,19 +182,20 @@ async def save_config(request: Request):
     for key in CHECKED_MODEL_KEYS:
         if key in changes and ids is not None and changes[key] not in ids:
             return back("/settings", err=f"Unknown model id: {changes[key]}")
-    token = str(form.get("TG_BOT_TOKEN", "")).strip()
-    api_key = str(form.get("OPENROUTER_API_KEY", "")).strip()
-    try:
-        if token and token != settings.tg_bot_token:
-            await asyncio.to_thread(setup.tg_get_me, token)
-            changes["TG_BOT_TOKEN"] = token
-        if api_key and api_key != settings.openrouter_api_key:
-            await asyncio.to_thread(setup.or_key_info, api_key)
-            changes["OPENROUTER_API_KEY"] = api_key
-    except setup.SetupError as e:
-        return back("/settings", err=str(e))
-    except httpx.TransportError as e:
-        return back("/settings", err=f"Couldn't reach the service to check it ({type(e).__name__}); nothing saved.")
+    if not settings.hosted:
+        token = str(form.get("TG_BOT_TOKEN", "")).strip()
+        api_key = str(form.get("OPENROUTER_API_KEY", "")).strip()
+        try:
+            if token and token != settings.tg_bot_token:
+                await asyncio.to_thread(setup.tg_get_me, token)
+                changes["TG_BOT_TOKEN"] = token
+            if api_key and api_key != settings.openrouter_api_key:
+                await asyncio.to_thread(setup.or_key_info, api_key)
+                changes["OPENROUTER_API_KEY"] = api_key
+        except setup.SetupError as e:
+            return back("/settings", err=str(e))
+        except httpx.TransportError as e:
+            return back("/settings", err=f"Couldn't reach the service to check it ({type(e).__name__}); nothing saved.")
     if not changes:
         return back("/settings", msg="Nothing changed.")
     try:

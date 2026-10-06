@@ -37,10 +37,12 @@
   <label>Voice model <input name="WHISPER_MODEL" value="{{ s.whisper_model }}" required></label>
   <label>Your first name <input name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required></label>
   <label>History turns per reply <input type="number" min="1" max="100" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></label>
+  {% if not hosted %}
   <h3>Needs a restart</h3>
   <label>Telegram bot token <input type="password" name="TG_BOT_TOKEN" placeholder="{{ s.tg_bot_token|mask }} (blank keeps it)" autocomplete="off"></label>
   <label>OpenRouter API key <input type="password" name="OPENROUTER_API_KEY" placeholder="{{ s.openrouter_api_key|mask }} (blank keeps it)" autocomplete="off"></label>
   <label>Owner user id <input name="OWNER_USER_ID" value="{{ s.owner_user_id }}" inputmode="numeric" required></label>
+  {% endif %}
   <button>Save</button>
 </form>
 {% endblock %}

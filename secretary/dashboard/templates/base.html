@@ -15,7 +15,7 @@
   <a href="/contacts">Contacts</a>
   <a href="/prompts">Prompts</a>
   <a href="/drafts">Drafts{% if request.state.pending %} ({{ request.state.pending }}){% endif %}</a>
-  <form method="post" action="/logout"><button>Log out</button></form>
+  {% if not hosted %}<form method="post" action="/logout"><button>Log out</button></form>{% endif %}
 </nav>
 {% endif %}
 {% if request.query_params.msg %}<p class="flash ok" dir="auto">{{ request.query_params.msg }}</p>{% endif %}
