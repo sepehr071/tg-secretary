@@ -79,8 +79,12 @@ async def run_platform_bot() -> None:
             try:
                 updates = await tg.call(settings.platform_bot_token, "getUpdates", offset=offset,
                                         timeout=30, allowed_updates=["message", "managed_bot"])
+            except tg.TelegramError as e:  # "method: description", never the URL
+                log.warning("getUpdates failed: %s", e)
+                await asyncio.sleep(5)
+                continue
             except Exception as e:  # noqa: BLE001
-                log.warning("getUpdates failed: %s", type(e).__name__)  # message may carry the URL/token
+                log.warning("getUpdates failed: %s", type(e).__name__)  # httpx errors may carry the URL/token
                 await asyncio.sleep(5)
                 continue
             for u in updates:
