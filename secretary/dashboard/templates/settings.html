@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ "Settings"|t }}</h1>
+<script>
+  // Before the forms are parsed, so the advanced fields never flash. Without JS they all stay visible.
+  document.documentElement.classList.add("js");
+  try { if (localStorage.getItem("dash-advanced") === "1") document.documentElement.classList.add("adv"); } catch (e) {}
+</script>
+<div class="page-head">
+  <h1>{{ "Settings"|t }}</h1>
+  <label class="adv-toggle">
+    <input type="checkbox" class="switch" id="adv-toggle">
+    <span>{{ "Advanced settings"|t }}</span>
+  </label>
+</div>
 {% if restart %}
 <form method="post" action="{{ root }}/restart" class="card warn">
   <p>{{ "The token, API key or owner change needs a restart. Under pm2 the bot is back in a few seconds; without pm2 it stays stopped."|t }}</p>
@@ -8,41 +19,131 @@
 </form>
 {% endif %}
 
-<form method="post" action="{{ root }}/settings/live" class="card">
-  <h2>{{ "Live"|t }} <small>{{ "applies to the next message, same as the /commands"|t }}</small></h2>
+<form method="post" action="{{ root }}/settings/live" class="sheet">
   {# Values as loaded: the server writes only fields that differ from these. #}
   {% for key, value in live.items() %}<input type="hidden" name="orig_{{ key }}" value="{{ value }}">{% endfor %}
-  <label><input type="checkbox" name="paused" {{ "checked" if live.paused == "on" }}> {{ "Pause all auto-replies"|t }}</label>
-  <label><input type="checkbox" name="approval_mode" {{ "checked" if live.approval_mode == "on" }}> {{ "Approval mode: every reply waits for you in Drafts"|t }}</label>
-  <label><input type="checkbox" name="innercircle_gate" {{ "checked" if live.innercircle_gate == "on" }}> {{ "Inner-circle gate: hold emotional, long or after-silence messages from gf, family, bff and close friends"|t }}</label>
-  <label>{{ "Voice transcription"|t }}
-    <select name="voice_override">
-      <option value="" {{ "selected" if live.voice_override == "" }}>{{ "Default"|t }} ({{ ("on" if s.voice_transcribe else "off")|t }})</option>
-      <option value="on" {{ "selected" if live.voice_override == "on" }}>{{ "On"|t }}</option>
-      <option value="off" {{ "selected" if live.voice_override == "off" }}>{{ "Off"|t }}</option>
-    </select></label>
-  <label>{{ "Quiet hours"|t }} <input type="time" name="quiet_start" value="{{ live.quiet_start }}"> {{ "to"|t }}
-    <input type="time" name="quiet_end" value="{{ live.quiet_end }}"> <small>{{ "both empty = none"|t }}</small></label>
-  {% for key, label, default in live_ints %}
-  <label>{{ label|t }} <input type="number" min="0" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default }} ({{ 'default'|t }})"></label>
-  {% endfor %}
-  <button>{{ "Save"|t }}</button>
+
+  <fieldset class="group">
+    <legend>{{ "Replying"|t }}</legend>
+    <p class="group-hint">{{ "When the secretary answers for you."|t }}</p>
+    <label class="setting">
+      <span><b>{{ "Pause all auto-replies"|t }}</b><small>{{ "Nothing is sent until you turn this off."|t }}</small></span>
+      <input type="checkbox" class="switch" name="paused" {{ "checked" if live.paused == "on" }}>
+    </label>
+    <label class="setting">
+      <span><b>{{ "Ask me before sending"|t }}</b><small>{{ "Every reply waits for you in Drafts."|t }}</small></span>
+      <input type="checkbox" class="switch" name="approval_mode" {{ "checked" if live.approval_mode == "on" }}>
+    </label>
+    <label class="setting">
+      <span><b>{{ "Hold sensitive messages from close people"|t }}</b><small>{{ "Emotional, long or after-a-silence messages from your partner, family and close friends wait for you in Drafts."|t }}</small></span>
+      <input type="checkbox" class="switch" name="innercircle_gate" {{ "checked" if live.innercircle_gate == "on" }}>
+    </label>
+  </fieldset>
+
+  <fieldset class="group">
+    <legend>{{ "Timing"|t }}</legend>
+    <p class="group-hint">{{ "How soon replies go out."|t }}</p>
+    <div class="setting">
+      <label for="delay_override"><b>{{ "Wait before replying"|t }}</b><small>{{ "Gives you time to answer yourself first. Leave empty for the default."|t }}</small></label>
+      <span class="unit"><input type="number" min="0" id="delay_override" name="delay_override" value="{{ live.delay_override }}" placeholder="{{ s.auto_reply_delay_seconds }}"> {{ "seconds"|t }}</span>
+    </div>
+    <div class="setting">
+      <span><b>{{ "Quiet hours"|t }}</b><small>{{ "Leave both empty to reply at any hour."|t }}</small></span>
+      <span class="unit">{{ "Don't reply between"|t }}
+        <input type="time" name="quiet_start" value="{{ live.quiet_start }}" aria-label="{{ 'Quiet hours start'|t }}">
+        {{ "and"|t }}
+        <input type="time" name="quiet_end" value="{{ live.quiet_end }}" aria-label="{{ 'Quiet hours end'|t }}"></span>
+    </div>
+  </fieldset>
+
+  <fieldset class="group voice-group">
+    <legend>{{ "Voice messages"|t }}</legend>
+    <p class="group-hint">{{ "Voice messages are turned into text, then answered like any other message."|t }}</p>
+    <label class="setting">
+      <span><b>{{ "Answer voice messages"|t }}</b></span>
+      {# Hidden "off" first: an unchecked box sends nothing, and the server reads the last value. #}
+      <input type="hidden" name="voice_override" value="off" data-voice-simple>
+      <input type="checkbox" class="switch" name="voice_override" value="on" data-voice-simple {{ "checked" if live.voice_override == "on" }}>
+    </label>
+  </fieldset>
+
+  <fieldset class="group advanced">
+    <legend>{{ "Technical"|t }}</legend>
+    <p class="group-hint">{{ "For people who know what these do."|t }}</p>
+    {% for key, label, default in live_ints if key != "delay_override" %}
+    <div class="setting">
+      <label for="{{ key }}"><b>{{ label|t }}</b></label>
+      <input type="number" min="0" id="{{ key }}" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default }} ({{ 'default'|t }})">
+    </div>
+    {% endfor %}
+    <div class="setting">
+      <label for="voice-select"><b>{{ "Voice transcription"|t }}</b><small>{{ "Default follows the server config."|t }}</small></label>
+      {# Disabled until JS switches to advanced, so only one voice control submits. #}
+      <select id="voice-select" name="voice_override" data-voice-advanced disabled>
+        <option value="" {{ "selected" if voice_raw == "" }}>{{ "Default"|t }} ({{ ("on" if s.voice_transcribe else "off")|t }})</option>
+        <option value="on" {{ "selected" if voice_raw == "on" }}>{{ "On"|t }}</option>
+        <option value="off" {{ "selected" if voice_raw == "off" }}>{{ "Off"|t }}</option>
+      </select>
+    </div>
+  </fieldset>
+
+  <div class="actions"><button class="primary">{{ "Save changes"|t }}</button></div>
 </form>
 
-<form method="post" action="{{ root }}/settings/config" class="card">
-  <h2>{{ "Config"|t }} <small>{{ "saved to .env (the old one is backed up)"|t }}</small></h2>
-  <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
-  <label>{{ "Reply model"|t }} <input name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" required></label>
-  <label>{{ "Extractor model"|t }} <input name="EXTRACTOR_MODEL" value="{{ s.extractor_model }}" list="models" required></label>
-  <label>{{ "Voice model"|t }} <input name="WHISPER_MODEL" value="{{ s.whisper_model }}" required></label>
-  <label>{{ "Your first name"|t }} <input name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required></label>
-  <label>{{ "History turns per reply"|t }} <input type="number" min="1" max="100" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></label>
+<form method="post" action="{{ root }}/settings/config" class="sheet">
+  <fieldset class="group">
+    <legend>{{ "About you"|t }}</legend>
+    <p class="group-hint">{{ "The name the secretary uses for you in replies."|t }}</p>
+    <div class="setting">
+      <label for="OWNER_FIRST_NAME"><b>{{ "Your first name"|t }}</b></label>
+      <input id="OWNER_FIRST_NAME" name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required>
+    </div>
+  </fieldset>
+
+  <fieldset class="group advanced">
+    <legend>{{ "Models"|t }}</legend>
+    <p class="group-hint">{{ "OpenRouter model ids. Saved to .env (the old one is backed up)."|t }}</p>
+    <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
+    <div class="setting"><label for="OPENROUTER_MODEL"><b>{{ "Reply model"|t }}</b></label>
+      <input id="OPENROUTER_MODEL" name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" dir="ltr" required></div>
+    <div class="setting"><label for="EXTRACTOR_MODEL"><b>{{ "Extractor model"|t }}</b></label>
+      <input id="EXTRACTOR_MODEL" name="EXTRACTOR_MODEL" value="{{ s.extractor_model }}" list="models" dir="ltr" required></div>
+    <div class="setting"><label for="WHISPER_MODEL"><b>{{ "Voice model"|t }}</b></label>
+      <input id="WHISPER_MODEL" name="WHISPER_MODEL" value="{{ s.whisper_model }}" dir="ltr" required></div>
+    <div class="setting"><label for="HISTORY_TURNS"><b>{{ "History turns per reply"|t }}</b></label>
+      <input type="number" min="1" max="100" id="HISTORY_TURNS" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></div>
+  </fieldset>
   {% if not hosted %}
-  <h3>{{ "Needs a restart"|t }}</h3>
-  <label>{{ "Telegram bot token"|t }} <input type="password" name="TG_BOT_TOKEN" placeholder="{{ s.tg_bot_token|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off"></label>
-  <label>{{ "OpenRouter API key"|t }} <input type="password" name="OPENROUTER_API_KEY" placeholder="{{ s.openrouter_api_key|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off"></label>
-  <label>{{ "Owner user id"|t }} <input name="OWNER_USER_ID" value="{{ s.owner_user_id }}" inputmode="numeric" required></label>
+  <fieldset class="group advanced">
+    <legend>{{ "Needs a restart"|t }}</legend>
+    <p class="group-hint">{{ "These take effect after a restart."|t }}</p>
+    <div class="setting"><label for="TG_BOT_TOKEN"><b>{{ "Telegram bot token"|t }}</b></label>
+      <input type="password" id="TG_BOT_TOKEN" name="TG_BOT_TOKEN" placeholder="{{ s.tg_bot_token|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off" dir="ltr"></div>
+    <div class="setting"><label for="OPENROUTER_API_KEY"><b>{{ "OpenRouter API key"|t }}</b></label>
+      <input type="password" id="OPENROUTER_API_KEY" name="OPENROUTER_API_KEY" placeholder="{{ s.openrouter_api_key|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off" dir="ltr"></div>
+    <div class="setting"><label for="OWNER_USER_ID"><b>{{ "Owner user id"|t }}</b></label>
+      <input id="OWNER_USER_ID" name="OWNER_USER_ID" value="{{ s.owner_user_id }}" inputmode="numeric" dir="ltr" required></div>
+  </fieldset>
   {% endif %}
-  <button>{{ "Save"|t }}</button>
+
+  <div class="actions"><button class="primary">{{ "Save changes"|t }}</button></div>
 </form>
+
+<script>
+  (function () {
+    const root = document.documentElement, toggle = document.getElementById("adv-toggle");
+    function apply(on) {
+      root.classList.toggle("adv", on);
+      toggle.checked = on;
+      // Exactly one voice control submits: the switch in simple view, the three-way select in advanced.
+      document.querySelectorAll("[data-voice-simple]").forEach((el) => { el.disabled = on; });
+      document.querySelector("[data-voice-advanced]").disabled = !on;
+    }
+    apply(root.classList.contains("adv"));
+    toggle.addEventListener("change", () => {
+      apply(toggle.checked);
+      try { localStorage.setItem("dash-advanced", toggle.checked ? "1" : "0"); } catch (e) {}
+    });
+  })();
+</script>
 {% endblock %}

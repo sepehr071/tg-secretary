@@ -96,11 +96,13 @@ def _onoff(flag: bool) -> str:
 async def settings_page(request: Request):
     # Rendered twice: as the visible inputs and as hidden orig_* fields, so a save
     # writes only what the user changed on this page.
+    voice_raw = await db.get_state("voice_override") or ""
     live = {
         "paused": _onoff(await db.get_state_bool("paused")),
         "approval_mode": _onoff(await db.get_state_bool("approval_mode")),
         "innercircle_gate": _onoff(await db.get_state_bool("innercircle_gate", default=True)),
-        "voice_override": await db.get_state("voice_override") or "",
+        # Effective value: the on/off switch posts it back unchanged, so an untouched switch writes nothing.
+        "voice_override": voice_raw or _onoff(settings.voice_transcribe),
         "quiet_start": _pad_time(await db.get_state("quiet_start") or ""),
         "quiet_end": _pad_time(await db.get_state("quiet_end") or ""),
         **{key: await db.get_state(key) or "" for key in LIVE_INT_KEYS},
@@ -108,6 +110,7 @@ async def settings_page(request: Request):
     return render(
         request, "settings.html",
         live=live,
+        voice_raw=voice_raw,
         live_ints=[(key, label, getattr(settings, attr)) for key, (label, attr) in LIVE_INT_KEYS.items()],
         s=settings,
         models=sorted(await _model_ids() or []),

@@ -214,6 +214,36 @@ async def check_settings(app) -> None:
         assert r.status_code == 200
         assert TOKEN not in r.text and KEY not in r.text and setup.mask(TOKEN) in r.text
 
+        # Simple view vs advanced: technical fields only inside the advanced groups.
+        import re
+        adv = "".join(re.findall(r'<fieldset class="group advanced">.*?</fieldset>', r.text, re.S))
+        simple = re.sub(r'<fieldset class="group advanced">.*?</fieldset>', "", r.text, flags=re.S)
+        for name in ("away_delay_override", "cooldown_override", "OPENROUTER_MODEL", "EXTRACTOR_MODEL",
+                     "WHISPER_MODEL", "HISTORY_TURNS", "TG_BOT_TOKEN", "OPENROUTER_API_KEY", "OWNER_USER_ID"):
+            assert f'name="{name}"' in adv and f'name="{name}"' not in simple, name
+        for name in ("paused", "approval_mode", "innercircle_gate", "delay_override", "quiet_start", "OWNER_FIRST_NAME"):
+            assert f'name="{name}"' in simple, name
+        assert "Advanced settings" in r.text and 'id="adv-toggle"' in r.text
+        assert "<select" in adv and "data-voice-advanced disabled" in adv  # only the switch submits by default
+
+        # Voice switch: orig carries the effective value, so an untouched switch writes nothing.
+        await db.set_state("voice_override", "")
+        settings.voice_transcribe = True
+        r = await c.get("/settings")
+        assert 'name="orig_voice_override" value="on"' in r.text
+        on, off = ["off", "on"], ["off"]  # hidden "off" + checkbox "on" when checked; last value wins
+        r = await c.post("/settings/live", data={"orig_voice_override": "on", "voice_override": on})
+        assert "err" not in r.headers["location"] and await db.get_state("voice_override") == ""
+        await c.post("/settings/live", data={"orig_voice_override": "on", "voice_override": off})
+        assert await db.get_state("voice_override") == "off"
+        r = await c.get("/settings")
+        assert 'name="orig_voice_override" value="off"' in r.text
+        await c.post("/settings/live", data={"orig_voice_override": "off", "voice_override": on})
+        assert await db.get_state("voice_override") == "on"
+        # Advanced three-way select still accepts "" (back to default).
+        await c.post("/settings/live", data={"orig_voice_override": "on", "voice_override": ""})
+        assert await db.get_state("voice_override") == ""
+
         # Live group writes the same bot_state keys the /commands use.
         r = await c.post("/settings/live", data={
             "paused": "on", "voice_override": "off", "quiet_start": "23:00", "quiet_end": "08:00",
@@ -431,8 +461,11 @@ async def check_persian() -> None:
                 assert r.status_code == 200, (path, r.status_code)
                 assert 'dir="rtl"' in r.text and 'lang="fa"' in r.text, path
                 assert "تنظیمات" in r.text, path          # nav: Settings
-                for english in (">Settings<", ">Contacts<", ">Drafts<", ">Save<", ">Status<"):
+                for english in (">Settings<", ">Contacts<", ">Drafts<", ">Save<", ">Status<", "Save changes",
+                                "Advanced settings", "Wait before replying"):
                     assert english not in r.text, (path, english)
+            r = await c.get("/settings")
+            assert "تنظیمات پیشرفته" in r.text and "TG_BOT_TOKEN" not in r.text  # hosted: no token field
             r = await c.post("/settings/config", data={"HISTORY_TURNS": ""})
             assert "err=" in r.headers["location"] and "%D9" in r.headers["location"]  # Persian flash
         assert web.t("never-translated-xyz") == "never-translated-xyz"
