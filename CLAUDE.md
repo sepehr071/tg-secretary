@@ -34,6 +34,12 @@ secretary/
     ├── drafts.py     HITL queue (Send / Skip)
     └── web.py, templates/, static/
 
+hosting/              hosted platform: Telegram login, managed bots, per-tenant pm2 (see hosting/README.md)
+├── app.py            FastAPI site: onboarding, account, /admin, /app proxy
+├── bot.py            platform bot (managed bots, credit alerts)
+├── tenants.py, pm2.py, openrouter.py, tg.py, oidc.py, proxy.py, db.py, config.py
+└── ecosystem.config.cjs, Caddyfile.example, README.md
+
 prompts/
 ├── personas/         <relationship>.txt (gitignored, real) → falls back to tracked <relationship>.example.txt
 ├── contacts/         <chat_id>.txt — hand-tuned per-friend prompts
@@ -123,6 +129,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 ### Foot-guns
 - OpenRouter `reasoning.enabled=false` is rejected by Gemini 3.5+ ("Reasoning is mandatory"). Use `extra_body={"reasoning": {"effort": "minimal", "exclude": True}}` for cross-model compat.
 - OpenRouter `reasoning` param: `effort ∈ {xhigh, high, medium, low, minimal, none}` (OpenAI-style) OR `max_tokens: <int>` (Anthropic-style) — never both. Always include `exclude: true` so reasoning tokens don't leak into the reply content. `secretary/llm.py:generate_reply` accepts a `reasoning_effort` kwarg; default is `minimal+exclude` (the floor Gemini 3.5+ won't reject).
+- The hosting package is `hosting`, never `platform` — `platform` shadows the stdlib.
 - Starlette `Jinja2Templates.TemplateResponse` signature: `templates.TemplateResponse(request, "name.html", {...})` — `request` is now positional. Old `TemplateResponse("name.html", {"request": request, ...})` form raises `TypeError: unhashable type: 'dict'` on Starlette ≥ 0.29.
 - Telegram `getFile` URL embeds the bot token; httpx logs it at INFO. Treat `pm2 logs` as a token-leak surface — `@BotFather /revoke` if a paste escapes.
 - `cur.lastrowid` is `int | None`. Guard with `if lastrowid is None: raise RuntimeError(...)` before returning from INSERT helpers.
@@ -157,6 +164,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 - Offline core logic (no .env, no network): `uv run python scripts/smoke_core.py`.
 - Setup wizard helpers: `uv run python scripts/smoke_setup.py`.
 - Dashboard routes + DB helpers (no network): `PYTHONIOENCODING=utf-8 uv run python scripts/smoke_dashboard.py`.
+- Hosting platform (no network): `PYTHONIOENCODING=utf-8 uv run python scripts/smoke_hosting.py`.
 - Import-time crash: `uv run python -c "import secretary.__main__; print('OK')"`.
 - Migration sanity: `init_db`, then `PRAGMA table_info(<table>)` for any migrated table.
 - Log filter on Ubuntu: `pm2 logs tg-secretary --lines 200 | grep -iE "voice|whisper|httpx|llm"`.
