@@ -40,9 +40,9 @@ FA: dict[str, str] = {
     "missing rights:": "دسترسی\u200cهای کم:",
     "reply": "پاسخ دادن",
     "read messages": "خواندن پیام\u200cها",
-    "Telegram → Settings → Business → Chatbots": "تلگرام ← تنظیمات ← Business ← Chatbots",
-    "Not connected. In Telegram open Settings → Business → Chatbots and add":
-        "وصل نیست. در تلگرام به تنظیمات ← Business ← Chatbots برو و این ربات را اضافه کن:",
+    "Telegram → Settings → Chat Automation": "تلگرام ← تنظیمات ← Chat Automation",
+    "Not connected. In Telegram open Settings → Chat Automation and pick":
+        "وصل نیست. در تلگرام به تنظیمات ← Chat Automation برو و این ربات را انتخاب کن:",
     "Activity": "فعالیت",
     "replies today": "پاسخ امروز",
     "this week": "این هفته",

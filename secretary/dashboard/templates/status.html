@@ -20,9 +20,9 @@
   {% for c in connections %}
     <p>{{ ("enabled" if c.is_enabled else "disabled")|t }}
     {% if c.missing %} · <span class="bad">{{ "missing rights:"|t }} {{ c.missing|map("t")|join(", ") }}</span>
-      ({{ "Telegram → Settings → Business → Chatbots"|t }}){% endif %}</p>
+      ({{ "Telegram → Settings → Chat Automation"|t }}){% endif %}</p>
   {% else %}
-    <p class="bad">{{ "Not connected. In Telegram open Settings → Business → Chatbots and add"|t }} @{{ bot_username }}.</p>
+    <p class="bad">{{ "Not connected. In Telegram open Settings → Chat Automation and pick"|t }} @{{ bot_username }}.</p>
   {% endfor %}
 </section>
 <section class="card">
