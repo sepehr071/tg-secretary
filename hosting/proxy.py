@@ -13,6 +13,11 @@ _PASS_REQ = ("content-type", "accept")  # never the browser Cookie: the platform
 _PASS_RESP = ("content-type", "location", "cache-control")  # never Set-Cookie
 
 
+@router.get("/app")
+async def proxy_root():
+    return RedirectResponse("/app/", status_code=303)
+
+
 @router.api_route("/app/{path:path}", methods=["GET", "POST"])
 async def proxy(path: str, request: Request):
     from .app import render  # late import: app imports this module
@@ -27,6 +32,6 @@ async def proxy(path: str, request: Request):
                                 params=request.query_params, content=await request.body(),
                                 headers=headers, follow_redirects=False)
     except httpx.TransportError:
-        return render(request, "error.html", 503, title="ربات در حال راه‌اندازی است",
+        return render(request, "error.html", 503, title="ربات در حال راه\u200cاندازی است",
                       body="چند ثانیه دیگر صفحه را دوباره باز کنید.")
     return Response(r.content, r.status_code, {k: v for k in _PASS_RESP if (v := r.headers.get(k))})

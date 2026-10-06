@@ -552,6 +552,11 @@ async def check_proxy() -> None:
     assert req.headers["x-platform-auth"] == "sek"
     assert b"HISTORY_TURNS=9" in req.content
     assert "cookie" not in req.headers                              # platform session never leaks
+    async with web(app, cookie) as c:
+        await c.get("/app/http://evil.test/x")                      # path can't redirect the target host
+        r = await c.get("/app")
+        assert r.status_code == 303 and r.headers["location"] == "/app/"
+    assert seen[-1].url.host == "127.0.0.1" and seen[-1].url.port == port
 
     def down(req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
