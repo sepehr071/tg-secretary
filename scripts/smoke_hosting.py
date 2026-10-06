@@ -550,6 +550,11 @@ async def check_proxy() -> None:
         r = await c.get("/app")
         assert r.status_code == 303 and r.headers["location"] == "/app/"
     assert seen[-1].url.host == "127.0.0.1" and seen[-1].url.port == port
+    n = len(seen)
+    async with web(app, cookie) as c:                               # forged updates never reach /_tg
+        for p in ("/app/_tg/update", "/app/./_tg/update", "/app/%5Ftg/update", "/app/x/../_tg/update"):
+            assert (await c.post(p, json={"update_id": 1})).status_code == 404, p
+    assert len(seen) == n
 
     def down(req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
@@ -626,6 +631,7 @@ async def check_router() -> None:
             if r.url.path.endswith("getBusinessConnection") else True}))[1])
 
     def upstream(req: httpx.Request) -> httpx.Response:
+        assert req.headers.get("x-platform-route") == "update"
         fwd.append((req.url.port, req.headers.get("x-platform-auth"), json.loads(req.content)))
         return httpx.Response(200, text="ok")
     router.TRANSPORT = httpx.MockTransport(upstream)

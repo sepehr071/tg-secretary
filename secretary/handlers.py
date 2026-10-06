@@ -22,6 +22,36 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+async def _store_connection(bc: Any) -> tuple[bool, bool]:
+    """Upsert a BusinessConnection; returns (can_reply, can_read)."""
+    can_reply = bool(bc.rights and bc.rights.can_reply)
+    await db.upsert_connection(
+        conn_id=bc.id,
+        owner_user_id=bc.user.id,
+        owner_chat_id=bc.user_chat_id,
+        can_reply=can_reply,
+        is_enabled=bool(bc.is_enabled),
+        rights=bc.rights.to_dict() if bc.rights else None,
+    )
+    return can_reply, bool(bc.rights and bc.rights.can_read_messages)
+
+
+async def _connection(ctx: ContextTypes.DEFAULT_TYPE, conn_id: str) -> dict[str, Any] | None:
+    """Stored connection; in hosted mode, one made before activation is fetched from Telegram and stored."""
+    conn = await db.get_connection(conn_id)
+    if conn is not None or not settings.hosted:
+        return conn
+    try:
+        bc = await ctx.bot.get_business_connection(conn_id)
+    except Exception as e:  # noqa: BLE001
+        log.warning("get_business_connection failed: %s", type(e).__name__)
+        return None
+    if bc.user.id != settings.owner_user_id:
+        return None
+    await _store_connection(bc)
+    return await db.get_connection(conn_id)
+
+
 async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Fires when the owner connects/disconnects the bot in Telegram Business settings."""
     bc = update.business_connection
@@ -32,18 +62,7 @@ async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         log.warning("business_connection from non-owner user %s ignored", bc.user.id)
         return
 
-    rights = bc.rights.to_dict() if bc.rights else None
-    can_reply = bool(bc.rights and bc.rights.can_reply)
-    can_read = bool(bc.rights and bc.rights.can_read_messages)
-
-    await db.upsert_connection(
-        conn_id=bc.id,
-        owner_user_id=bc.user.id,
-        owner_chat_id=bc.user_chat_id,
-        can_reply=can_reply,
-        is_enabled=bool(bc.is_enabled),
-        rights=rights,
-    )
+    can_reply, can_read = await _store_connection(bc)
 
     log.info(
         "business_connection: id=%s owner=%s enabled=%s can_reply=%s can_read=%s",
@@ -390,7 +409,7 @@ async def _handle_inbound_text(
     if gen is None:
         gen = _bump_gen(conn_id, chat_id)
 
-    conn_row = await db.get_connection(conn_id)
+    conn_row = await _connection(ctx, conn_id)
     if not conn_row:
         return
     owner_chat_id = conn_row["owner_chat_id"]
@@ -614,7 +633,7 @@ async def on_business_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         log.debug("owner-authored message in chat %s — cooldown reset", chat_id)
         return
 
-    conn_row = await db.get_connection(conn_id)
+    conn_row = await _connection(ctx, conn_id)
     if not conn_row or not conn_row["is_enabled"] or not conn_row["can_reply"]:
         log.info("connection %s not allowed to reply — skipping", conn_id)
         return
@@ -664,7 +683,7 @@ async def on_business_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    conn_row = await db.get_connection(conn_id)
+    conn_row = await _connection(ctx, conn_id)
     if not conn_row or not conn_row["is_enabled"] or not conn_row["can_reply"]:
         log.info("voice: connection not allowed to reply, skipping")
         return
@@ -776,7 +795,7 @@ async def on_business_non_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         )
         return
 
-    conn_row = await db.get_connection(conn_id)
+    conn_row = await _connection(ctx, conn_id)
     if not conn_row:
         return
     owner_chat_id = conn_row["owner_chat_id"]
@@ -862,6 +881,9 @@ async def on_business_deleted(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -
 async def on_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Plain /start command in a regular (non-business) DM to the bot itself."""
     if update.effective_message is None:
+        return
+    if settings.hosted and update.effective_user and update.effective_user.id == settings.owner_user_id:
+        await update.effective_message.reply_text("منشی فعال است")
         return
     await update.effective_message.reply_text(
         "Hi. I'm a secretary bot. To use me, open Telegram → Settings → "

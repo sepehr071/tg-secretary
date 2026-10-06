@@ -2,6 +2,7 @@ import asyncio
 import logging
 import signal
 
+from telegram import Update
 from telegram.ext import (
     Application,
     BusinessConnectionHandler,
@@ -27,7 +28,11 @@ log = logging.getLogger("secretary")
 
 
 async def _on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    log.error("unhandled error (update=%s)", update, exc_info=ctx.error)
+    # Never log the update itself: it carries contact message text.
+    kind = next((k for k, v in update.to_dict().items() if k != "update_id" and v is not None), None) \
+        if isinstance(update, Update) else None
+    log.error("unhandled error (update_id=%s kind=%s)",
+              getattr(update, "update_id", None), kind, exc_info=ctx.error)
 
 
 async def main() -> None:

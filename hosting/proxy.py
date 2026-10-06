@@ -1,6 +1,9 @@
 """/app/* -> the tenant's own dashboard on 127.0.0.1:<port>, authenticated by X-Platform-Auth."""
 from __future__ import annotations
 
+import posixpath
+from urllib.parse import unquote
+
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
@@ -21,6 +24,8 @@ async def proxy_root():
 @router.api_route("/app/{path:path}", methods=["GET", "POST"])
 async def proxy(path: str, request: Request):
     from .app import render  # late import: app imports this module
+    if posixpath.normpath("/" + unquote(path)).startswith("/_tg"):
+        return Response("not found", 404)  # update intake is router-only
     t = await db.get_tenant_by_owner(request.state.user["tg_id"])
     if t is None or t["status"] != "running" or not t["dashboard_port"] or not t["proxy_secret"]:
         return RedirectResponse("/account", status_code=303)

@@ -88,6 +88,8 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
         async def tg_update(request: Request):
             # The hosting router is the only poller of the shared bot; it pushes
             # this tenant's updates here (guard above already checked X-Platform-Auth).
+            if request.headers.get("x-platform-route") != "update":
+                return PlainTextResponse("forbidden", status_code=403)  # the /app proxy never sends it
             data = await request.json()
             await request.app.state.update_queue.put(Update.de_json(data, request.app.state.bot))
             return PlainTextResponse("ok")

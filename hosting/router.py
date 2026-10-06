@@ -49,7 +49,8 @@ async def forward(t: dict, u: dict) -> bool:
     try:
         async with httpx.AsyncClient(transport=TRANSPORT, timeout=10) as c:
             r = await c.post(f"http://127.0.0.1:{t['dashboard_port']}/_tg/update", json=u,
-                             headers={"x-platform-auth": t["proxy_secret"]})
+                             headers={"x-platform-auth": t["proxy_secret"],
+                                      "x-platform-route": "update"})
     except httpx.HTTPError as e:
         log.warning("forward to tenant %s failed: %s", t["id"], type(e).__name__)
         return False

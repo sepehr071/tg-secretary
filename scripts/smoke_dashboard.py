@@ -463,7 +463,10 @@ async def check_update_intake() -> None:
         app = create_app(BOT, lambda: None, env_path=ENV, update_queue=q)
         async with client(app) as c:
             assert (await c.post("/_tg/update", json=upd)).status_code == 403
-            r = await c.post("/_tg/update", json=upd, headers={"x-platform-auth": "p"})
+            r = await c.post("/_tg/update", json=upd, headers={"x-platform-auth": "p"})  # proxy-style: no route header
+            assert r.status_code in (403, 404) and q.empty(), r.status_code
+            r = await c.post("/_tg/update", json=upd,
+                             headers={"x-platform-auth": "p", "x-platform-route": "update"})
             assert r.status_code == 200, r.status_code
         got = q.get_nowait()
         assert isinstance(got, Update) and got.update_id == 77 and got.message.text == "/pause"
@@ -474,6 +477,33 @@ async def check_update_intake() -> None:
     async with client(app) as c:
         r = await c.post("/_tg/update", json=upd, headers=ORIGIN)
         assert r.status_code in (401, 404), r.status_code
+
+
+async def check_hosted_connection() -> None:
+    from types import SimpleNamespace as NS
+    from secretary import handlers
+    calls: list[str] = []
+
+    def ctx(uid: int):
+        async def gbc(cid):
+            calls.append(cid)
+            return NS(id=cid, user=NS(id=uid), user_chat_id=uid, is_enabled=True,
+                      rights=NS(can_reply=True, can_read_messages=True, to_dict=lambda: {"can_reply": True}))
+        return NS(bot=NS(get_business_connection=gbc))
+
+    old = (settings.hosted, settings.owner_user_id)
+    try:
+        settings.hosted, settings.owner_user_id = False, 5150
+        assert await handlers._connection(ctx(5150), "hc0") is None and calls == []   # local: no Telegram call
+        settings.hosted = True
+        assert await handlers._connection(ctx(999), "hc1") is None                    # stranger: nothing stored
+        assert await db.get_connection("hc1") is None
+        row = await handlers._connection(ctx(5150), "hc2")                            # owner: stored
+        assert row and row["owner_chat_id"] == 5150 and await db.get_connection("hc2")
+        n = len(calls)
+        assert await handlers._connection(ctx(5150), "hc2") and len(calls) == n       # cached after first fetch
+    finally:
+        settings.hosted, settings.owner_user_id = old
 
 
 async def main() -> None:
@@ -494,6 +524,7 @@ async def main() -> None:
         await check_persian()
         await check_credit_notice()
         await check_update_intake()
+        await check_hosted_connection()
     finally:
         await db.close_db()  # an open aiosqlite thread would hang the process on failure
     print("smoke_dashboard OK")
