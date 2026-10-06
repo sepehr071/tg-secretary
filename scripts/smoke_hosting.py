@@ -576,33 +576,17 @@ from hosting import bot as pbot  # noqa: E402
 @check
 async def check_platform_bot() -> None:
     calls = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        method = req.url.path.rsplit("/", 1)[1]
-        body = json.loads(req.content or b"{}")
-        calls.append((method, body))
-        if method == "getManagedBotToken":
-            return httpx.Response(200, json={"ok": True, "result": "950:managed"})
-        if method == "getMe":
-            return httpx.Response(200, json={"ok": True, "result": {"id": 950, "username": "n_bot",
-                                                                   "can_connect_to_business": True}})
-        return httpx.Response(200, json={"ok": True, "result": True})
-
-    tg.TRANSPORT = httpx.MockTransport(handler)
+    tg.TRANSPORT = httpx.MockTransport(lambda r: (
+        calls.append((r.url.path.rsplit("/", 1)[1], json.loads(r.content or b"{}"))),
+        httpx.Response(200, json={"ok": True, "result": True}))[1])
     await db.upsert_user(50, "N", None)
-    await db.add_consent(50, settings.consent_version)
     tid = await db.create_tenant(50)
-    await pbot.handle_update({"update_id": 1, "managed_bot": {
-        "user": {"id": 50}, "bot": {"id": 950, "username": "n_bot"}}})
-    t = await db.get_tenant(tid)
-    assert t["bot_id"] == 950 and t["managed"] == 1
-    assert ("setManagedBotAccessSettings", {"user_id": 950, "is_access_restricted": True}) in calls
-    assert "950:managed" in (tenants.tenant_dir(tid) / ".env").read_text(encoding="utf-8")
 
-    # Managed update from a stranger with no tenant: ignored, no token fetched.
-    n = len(calls)
-    await pbot.handle_update({"update_id": 2, "managed_bot": {"user": {"id": 99999}, "bot": {"id": 1}}})
-    assert all(m != "getManagedBotToken" for m, _ in calls[n:])
+    # Stranger /start: platform answers with the site link.
+    await pbot.handle_update({"update_id": 1, "message": {"message_id": 1, "date": 0, "text": "/start",
+                              "chat": {"id": 5000, "type": "private"}, "from": {"id": 5000, "is_bot": False, "first_name": "S"}}})
+    assert [b["chat_id"] for m, b in calls if m == "sendMessage"] == [5000]
+    assert "message" in pbot.ALLOWED_UPDATES and "managed_bot" not in pbot.ALLOWED_UPDATES
 
     # Credit warning fires once below 20 %.
     await db.update_tenant(tid, status="running", or_key_hash="hw")
@@ -636,34 +620,77 @@ def _or_mock(state: dict):
     return handler
 
 
+from hosting import router  # noqa: E402
+
+
 @check
-async def check_managed_attach_route() -> None:
-    """New user -> consent -> GET /onboard/bot creates the tenant, so the managed_bot update attaches."""
-    pm2.RUN = fake_run
-    app = happ.create_app()
-    await db.upsert_user(60, "Mani", "mani")
-    cookie = await db.create_session(60)
-    handler_calls = []
+async def check_router() -> None:
+    sent_tg, fwd = [], []
+    tg.TRANSPORT = httpx.MockTransport(lambda r: (
+        sent_tg.append((r.url.path.rsplit("/", 1)[1], json.loads(r.content or b"{}"))),
+        httpx.Response(200, json={"ok": True, "result":
+            {"id": "c-late", "user": {"id": 81}, "user_chat_id": 81, "date": 0, "can_reply": True, "is_enabled": True}
+            if r.url.path.endswith("getBusinessConnection") else True}))[1])
 
-    def tg_handler(req: httpx.Request) -> httpx.Response:
-        method = req.url.path.rsplit("/", 1)[1]
-        handler_calls.append(method)
-        if method == "getManagedBotToken":
-            return httpx.Response(200, json={"ok": True, "result": "960:managed"})
-        if method == "getMe":
-            return httpx.Response(200, json={"ok": True, "result": {"id": 960, "username": "m_bot"}})
-        return httpx.Response(200, json={"ok": True, "result": True})
+    def upstream(req: httpx.Request) -> httpx.Response:
+        fwd.append((req.url.port, req.headers.get("x-platform-auth"), json.loads(req.content)))
+        return httpx.Response(200, text="ok")
+    router.TRANSPORT = httpx.MockTransport(upstream)
 
-    tg.TRANSPORT = httpx.MockTransport(tg_handler)
-    async with web(app, cookie) as c:
-        await c.post("/onboard/consent", data={"accept": "1"})
-        assert await db.get_tenant_by_owner(60) is None
-        assert (await c.get("/onboard/bot")).status_code == 200
-    assert await db.get_tenant_by_owner(60) is not None            # created by the page, not by the check
-    await pbot.handle_update({"update_id": 3, "managed_bot": {"user": {"id": 60}, "bot": {"id": 960, "username": "m_bot"}}})
-    t = await db.get_tenant_by_owner(60)
-    assert t["bot_id"] == 960 and t["managed"] == 1, t
+    await db.upsert_user(81, "Run", None)
+    tid = await db.create_tenant(81)
+    await db.update_tenant(tid, status="running", proxy_secret="s81")
+    port = await db.alloc_port(tid)
+
+    conn = {"update_id": 1, "business_connection": {"id": "c81", "user": {"id": 81}, "user_chat_id": 81,
+            "date": 0, "can_reply": True, "is_enabled": True}}
+    assert await router.dispatch(conn) == "forwarded"
+    assert fwd[-1] == (port, "s81", conn)
+    msg = {"update_id": 2, "business_message": {"message_id": 5, "date": 0, "business_connection_id": "c81",
+           "chat": {"id": 900, "type": "private"}, "from": {"id": 900, "is_bot": False, "first_name": "F"}, "text": "hi"}}
+    assert await router.dispatch(msg) == "forwarded" and fwd[-1][2]["update_id"] == 2
+    # Unknown connection id: resolved via getBusinessConnection, then cached.
+    late = {"update_id": 3, "deleted_business_messages": {"business_connection_id": "c-late",
+            "chat": {"id": 900, "type": "private"}, "message_ids": [5]}}
+    assert await router.dispatch(late) == "forwarded"
+    n = len([m for m, _ in sent_tg if m == "getBusinessConnection"])
+    assert await router.dispatch({**late, "update_id": 4}) == "forwarded"
+    assert len([m for m, _ in sent_tg if m == "getBusinessConnection"]) == n   # cached
+    # Owner DM and button go to the owner's tenant.
+    dm = {"update_id": 5, "message": {"message_id": 9, "date": 0, "chat": {"id": 81, "type": "private"},
+          "from": {"id": 81, "is_bot": False, "first_name": "Run"}, "text": "/pause"}}
+    assert await router.dispatch(dm) == "forwarded"
+    cb = {"update_id": 6, "callback_query": {"id": "q", "chat_instance": "x", "from": {"id": 81, "is_bot": False, "first_name": "Run"}, "data": "a"}}
+    assert await router.dispatch(cb) == "forwarded"
+
+    # Stranger: never forwarded; one DM only.
+    before = len(fwd)
+    s_conn = {"update_id": 7, "business_connection": {"id": "c99", "user": {"id": 99}, "user_chat_id": 99,
+              "date": 0, "can_reply": True, "is_enabled": True}}
+    assert await router.dispatch(s_conn) == "dropped"
+    assert await router.dispatch({**s_conn, "update_id": 8}) == "dropped"
+    s_msg = {**msg, "update_id": 9, "business_message": {**msg["business_message"], "business_connection_id": "c99"}}
+    assert await router.dispatch(s_msg) == "dropped"
+    assert len(fwd) == before
+    assert [b["chat_id"] for m, b in sent_tg if m == "sendMessage"] == [99]
+    # Stranger /start goes to the platform handler.
+    s_dm = {**dm, "update_id": 10, "message": {**dm["message"], "from": {"id": 99, "is_bot": False, "first_name": "S"},
+            "chat": {"id": 99, "type": "private"}, "text": "/start"}}
+    assert await router.dispatch(s_dm) == "platform"
+
+    # Tenant not running: dropped.
+    await db.update_tenant(tid, status="stopped")
+    assert await router.dispatch({**msg, "update_id": 11}) == "dropped"
+    await db.update_tenant(tid, status="running")
+
+    # Tenant down: forward fails, returns quickly, next update still routed.
+    def down(req): raise httpx.ConnectError("refused")
+    router.TRANSPORT = httpx.MockTransport(down)
+    assert await router.dispatch({**msg, "update_id": 12}) == "dropped"
+    router.TRANSPORT = httpx.MockTransport(upstream)
+    assert await router.dispatch({**msg, "update_id": 13}) == "forwarded"
     tg.TRANSPORT = None
+    router.TRANSPORT = None
 
 
 @check

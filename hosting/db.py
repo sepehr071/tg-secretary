@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS payments (
     client_ref TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL,
     applied INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS biz_connections (conn_id TEXT PRIMARY KEY, owner_tg_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS notified_strangers (tg_id INTEGER PRIMARY KEY);
 """
 
 UPDATABLE = {"bot_username", "status", "profile_done", "proxy_secret", "or_key_hash",
@@ -224,6 +226,24 @@ async def alloc_port(tid: int) -> int:
 
 async def release_tenant(tid: int) -> None:
     await _write("UPDATE tenants SET status='deleted', bot_id=NULL, dashboard_port=NULL WHERE id=?", tid)
+
+
+async def put_biz_conn(conn_id: str, owner_tg_id: int) -> None:
+    await _write("INSERT INTO biz_connections VALUES (?, ?) ON CONFLICT(conn_id) DO UPDATE SET owner_tg_id=excluded.owner_tg_id",
+                 conn_id, owner_tg_id)
+
+
+async def get_biz_conn_owner(conn_id: str) -> int | None:
+    row = await _one("SELECT owner_tg_id FROM biz_connections WHERE conn_id=?", conn_id)
+    return row["owner_tg_id"] if row else None
+
+
+async def mark_stranger_notified(tg_id: int) -> bool:
+    try:
+        await _write("INSERT INTO notified_strangers VALUES (?)", tg_id)
+    except sqlite3.IntegrityError:
+        return False
+    return True
 
 
 async def add_payment(tenant_id: int, amount_usd: float, paid_text: str, note: str,
