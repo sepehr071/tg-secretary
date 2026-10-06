@@ -441,6 +441,15 @@ async def check_persian() -> None:
     assert web.t("Settings") == "Settings"  # default en: untouched
 
 
+async def check_credit_notice() -> None:
+    from secretary import handlers
+    await db.set_state("credit_notice_at", "0")
+    assert await handlers._credit_notice_due() is True
+    assert await handlers._credit_notice_due() is False      # within the hour
+    await db.set_state("credit_notice_at", str(int(time.time()) - 3601))
+    assert await handlers._credit_notice_due() is True
+
+
 async def main() -> None:
     await db.init_db()
     try:
@@ -457,6 +466,7 @@ async def main() -> None:
         await check_proxy_ok_empty_secret()
         await check_root_path()
         await check_persian()
+        await check_credit_notice()
     finally:
         await db.close_db()  # an open aiosqlite thread would hang the process on failure
     print("smoke_dashboard OK")

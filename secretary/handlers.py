@@ -95,6 +95,15 @@ async def _notify_owner(
         log.exception("owner notify failed")
 
 
+async def _credit_notice_due() -> bool:
+    """OpenRouter 402 = the hosted credit is used up. Tell the owner at most once an hour."""
+    now = int(time.time())
+    if now - int(await db.get_state("credit_notice_at") or 0) < 3600:
+        return False
+    await db.set_state("credit_notice_at", str(now))
+    return True
+
+
 async def _keep_typing(ctx: ContextTypes.DEFAULT_TYPE, conn_id: str, chat_id: int) -> None:
     """Hold the typing indicator (Telegram clears it after ~5s) until cancelled."""
     while True:
@@ -483,6 +492,14 @@ async def _handle_inbound_text(
         )
     except Exception as e:  # noqa: BLE001
         log.exception("LLM call failed")
+        if getattr(e, "status_code", None) == 402:
+            if await _credit_notice_due():
+                await _notify_owner(
+                    ctx, owner_chat_id,
+                    "Credit used up: no replies until you top up.\n"
+                    "اعتبار تمام شده؛ تا شارژ دوباره پاسخی ارسال نمی\u200cشود.",
+                )
+            return
         await _notify_owner(
             ctx,
             owner_chat_id,
