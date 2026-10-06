@@ -27,7 +27,7 @@
           <summary>ثبت پرداخت</summary>
           <form method="post" action="/admin/payment" class="pay-form">
             <input type="hidden" name="tenant_id" value="{{ r.id }}">
-            <input type="hidden" name="client_ref" value="{{ client_ref }}">
+            <input type="hidden" name="client_ref" value="{{ r.client_ref }}">
             <label>مبلغ (دلار)<input name="amount_usd" type="text" inputmode="decimal" dir="ltr" required></label>
             <label>مبلغ پرداخت&zwnj;شده<input name="paid_text" type="text" dir="auto"></label>
             <label>یادداشت<input name="note" type="text" dir="auto"></label>

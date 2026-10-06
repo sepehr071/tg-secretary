@@ -82,7 +82,7 @@ button.link {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 48px; padding: 0.55rem 1.4rem;
   background: var(--ink); color: #fff; border: 1px solid var(--ink); border-radius: 12px;
-  font: 700 1rem/1.4 inherit; font-family: inherit; text-decoration: none; cursor: pointer;
+  font: 700 1rem/1.4 "Vazirmatn", Tahoma, sans-serif; text-decoration: none; cursor: pointer;
 }
 .btn:hover { background: #0f2f2b; }
 .btn.big { width: 100%; min-height: 58px; font-size: 1.1rem; }
@@ -101,7 +101,7 @@ label { display: block; font-weight: 700; margin-bottom: 0.35rem; }
 input[type="text"], textarea {
   display: block; width: 100%; margin-bottom: 0.6rem;
   padding: 0.65rem 0.8rem; border: 1px solid var(--line); border-radius: 10px;
-  background: #fff; color: var(--text); font: 400 1rem/1.7 inherit; font-family: inherit;
+  background: #fff; color: var(--text); font: 400 1rem/1.7 "Vazirmatn", Tahoma, sans-serif;
 }
 textarea { resize: vertical; }
 input:focus, textarea:focus { border-color: var(--ink); }
