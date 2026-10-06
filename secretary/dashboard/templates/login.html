@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Log in</h1>
 <p>Send <code>/dashboard</code> to your bot in Telegram to get a one-time login link.</p>
-<form method="post" action="/login" id="login" class="row">
+<form method="post" action="{{ root }}/login" id="login" class="row">
   <input name="token" id="token" placeholder="token from the link" autocomplete="off" required>
   <button>Log in</button>
 </form>

@@ -27,5 +27,6 @@ def render(request: Request, name: str, status_code: int = 200, **context: Any) 
 
 def back(url: str, msg: str = "", err: str = "", **params: str) -> RedirectResponse:
     """Post-redirect-get with a one-line flash message in the query string."""
+    url = settings.dashboard_root_path + url
     query = urlencode({k: v for k, v in {"msg": msg, "err": err, **params}.items() if v})
     return RedirectResponse(f"{url}?{query}" if query else url, status_code=303)

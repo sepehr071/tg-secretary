@@ -2,13 +2,13 @@
 {% block content %}
 <h1>Settings</h1>
 {% if restart %}
-<form method="post" action="/restart" class="card warn">
+<form method="post" action="{{ root }}/restart" class="card warn">
   <p>The token, API key or owner change needs a restart. Under pm2 the bot is back in a few seconds; without pm2 it stays stopped.</p>
   <button>Restart now</button>
 </form>
 {% endif %}
 
-<form method="post" action="/settings/live" class="card">
+<form method="post" action="{{ root }}/settings/live" class="card">
   <h2>Live <small>applies to the next message, same as the /commands</small></h2>
   {# Values as loaded: the server writes only fields that differ from these. #}
   {% for key, value in live.items() %}<input type="hidden" name="orig_{{ key }}" value="{{ value }}">{% endfor %}
@@ -29,7 +29,7 @@
   <button>Save</button>
 </form>
 
-<form method="post" action="/settings/config" class="card">
+<form method="post" action="{{ root }}/settings/config" class="card">
   <h2>Config <small>saved to .env (the old one is backed up)</small></h2>
   <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
   <label>Reply model <input name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" required></label>

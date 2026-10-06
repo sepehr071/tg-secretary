@@ -7,7 +7,7 @@
     Auto-reply: {% if paused %}<span class="bad">paused</span>{% else %}<span class="good">on</span>{% endif %}
     · Approval mode: {{ "on" if approval else "off" }}
     · Inner-circle gate: {{ "on" if innercircle else "off" }}
-    · <a href="/settings">change</a>
+    · <a href="{{ root }}/settings">change</a>
   </p>
   <p>OpenRouter credit:
     {% if credit is none %}unavailable
@@ -28,11 +28,11 @@
 <section class="card">
   <h2>Activity</h2>
   <p>{{ stats.replies_today }} replies today · {{ stats.replies_week }} this week ·
-     {{ stats.total_chats }} chats · <a href="/drafts">{{ stats.pending }} drafts waiting</a></p>
+     {{ stats.total_chats }} chats · <a href="{{ root }}/drafts">{{ stats.pending }} drafts waiting</a></p>
   <table>
     <tr><th>When</th><th>Chat</th><th>Reply</th></tr>
     {% for r in replies %}
-    <tr><td>{{ r.created_at|ts }}</td><td><a href="/contacts/{{ r.chat_id }}">{{ r.chat_id }}</a></td>
+    <tr><td>{{ r.created_at|ts }}</td><td><a href="{{ root }}/contacts/{{ r.chat_id }}">{{ r.chat_id }}</a></td>
         <td dir="auto">{{ r.content[:120] }}</td></tr>
     {% else %}<tr><td colspan="3">No bot replies yet.</td></tr>{% endfor %}
   </table>

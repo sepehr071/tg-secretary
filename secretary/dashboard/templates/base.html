@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tg-secretary</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="{{ root }}/static/style.css">
 </head>
 <body>
 {% if request.state.pending is defined %}
 <nav>
   <strong>tg-secretary</strong>
-  <a href="/">Status</a>
-  <a href="/settings">Settings</a>
-  <a href="/contacts">Contacts</a>
-  <a href="/prompts">Prompts</a>
-  <a href="/drafts">Drafts{% if request.state.pending %} ({{ request.state.pending }}){% endif %}</a>
-  {% if not hosted %}<form method="post" action="/logout"><button>Log out</button></form>{% endif %}
+  <a href="{{ root }}/">Status</a>
+  <a href="{{ root }}/settings">Settings</a>
+  <a href="{{ root }}/contacts">Contacts</a>
+  <a href="{{ root }}/prompts">Prompts</a>
+  <a href="{{ root }}/drafts">Drafts{% if request.state.pending %} ({{ request.state.pending }}){% endif %}</a>
+  {% if not hosted %}<form method="post" action="{{ root }}/logout"><button>Log out</button></form>{% endif %}
 </nav>
 {% endif %}
 {% if request.query_params.msg %}<p class="flash ok" dir="auto">{{ request.query_params.msg }}</p>{% endif %}

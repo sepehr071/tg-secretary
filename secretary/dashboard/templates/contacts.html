@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Contacts</h1>
-<form method="get" action="/contacts" class="row">
+<form method="get" action="{{ root }}/contacts" class="row">
   <input name="q" value="{{ q }}" placeholder="name, @username or chat id" dir="auto">
   <button>Search</button>
 </form>
@@ -9,7 +9,7 @@
   <tr><th>Name</th><th>Relationship</th><th>Last message</th><th>Messages</th><th></th></tr>
   {% for r in rows %}
   <tr>
-    <td dir="auto"><a href="/contacts/{{ r.chat_id }}">{{ r.name }}</a>{% if r.tg_username %} <small>@{{ r.tg_username }}</small>{% endif %}</td>
+    <td dir="auto"><a href="{{ root }}/contacts/{{ r.chat_id }}">{{ r.name }}</a>{% if r.tg_username %} <small>@{{ r.tg_username }}</small>{% endif %}</td>
     <td>{{ r.relationship or "untagged" }}</td>
     <td>{{ r.last_seen|ts }}</td>
     <td>{{ r.msg_count }}</td>

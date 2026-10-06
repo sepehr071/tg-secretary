@@ -2,8 +2,8 @@
 {% block content %}
 <h1>Drafts</h1>
 {% for d in drafts %}
-<form method="post" action="/drafts/{{ d.id }}" class="card">
-  <p><a href="/contacts/{{ d.chat_id }}" dir="auto">{{ d.contact_name or d.chat_id }}</a>
+<form method="post" action="{{ root }}/drafts/{{ d.id }}" class="card">
+  <p><a href="{{ root }}/contacts/{{ d.chat_id }}" dir="auto">{{ d.contact_name or d.chat_id }}</a>
      <small>#{{ d.id }} · expires {{ d.expires_at|ts }}</small></p>
   <blockquote dir="auto">{{ d.contact_msg }}</blockquote>
   <textarea name="text" rows="3" dir="auto">{{ d.draft }}</textarea>

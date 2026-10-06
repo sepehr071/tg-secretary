@@ -402,6 +402,23 @@ async def check_proxy_ok_empty_secret() -> None:
         settings.dashboard_proxy_secret = old
 
 
+async def check_root_path() -> None:
+    old = (settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_root_path)
+    settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_root_path = True, "p", "/app"
+    try:
+        app = create_app(BOT, lambda: STOPS.append(1), env_path=ENV)
+        async with client(app, headers={"x-platform-auth": "p"}) as c:
+            r = await c.get("/")
+            assert r.status_code == 200
+            for bad in ('href="/"', 'href="/settings"', 'href="/static/'):
+                assert bad not in r.text, bad
+            assert 'href="/app/settings"' in r.text and 'href="/app/static/style.css"' in r.text
+            r = await c.post("/settings/config", data={"HISTORY_TURNS": ""})
+            assert r.headers["location"].startswith("/app/settings"), r.headers["location"]
+    finally:
+        settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_root_path = old
+
+
 async def main() -> None:
     await db.init_db()
     try:
@@ -416,6 +433,7 @@ async def main() -> None:
         await check_drafts(app)
         await check_hosted()
         await check_proxy_ok_empty_secret()
+        await check_root_path()
     finally:
         await db.close_db()  # an open aiosqlite thread would hang the process on failure
     print("smoke_dashboard OK")

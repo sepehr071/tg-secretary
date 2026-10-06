@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<p><a href="/contacts">← Contacts</a></p>
+<p><a href="{{ root }}/contacts">← Contacts</a></p>
 <h1 dir="auto">{{ title }} <small>{{ chat_id }}</small></h1>
 
-<form method="post" action="/contacts/{{ chat_id }}/profile" class="card">
+<form method="post" action="{{ root }}/contacts/{{ chat_id }}/profile" class="card">
   <h2>Profile</h2>
   <label>Relationship
     <select name="relationship">
@@ -16,7 +16,7 @@
   <button>Save</button>
 </form>
 
-<form method="post" action="/contacts/{{ chat_id }}/prompt" class="card">
+<form method="post" action="{{ root }}/contacts/{{ chat_id }}/prompt" class="card">
   <h2>Prompt file <small>prompts/contacts/{{ chat_id }}.txt</small></h2>
   <textarea name="text" rows="10" dir="auto">{{ prompt_text }}</textarea>
   <button>Save</button> <small>Empty deletes the file.</small>
@@ -27,15 +27,15 @@
   <table>
     {% for m in memories %}
     <tr><td>{{ m.kind }}</td><td dir="auto">{{ m.content }}</td><td>{{ m.created_at|ts }}</td>
-      <td><form method="post" action="/contacts/{{ chat_id }}/memory/{{ m.id }}/expire"><button>Remove</button></form></td></tr>
+      <td><form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory/{{ m.id }}/expire"><button>Remove</button></form></td></tr>
     {% else %}<tr><td>No memories yet.</td></tr>{% endfor %}
   </table>
-  <form method="post" action="/contacts/{{ chat_id }}/memory" class="row">
+  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory" class="row">
     <select name="kind">{% for k in kinds %}<option>{{ k }}</option>{% endfor %}</select>
     <input name="content" placeholder="new memory" dir="auto" required>
     <button>Add</button>
   </form>
-  <form method="post" action="/contacts/{{ chat_id }}/extract"><button>Extract from recent messages now</button></form>
+  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/extract"><button>Extract from recent messages now</button></form>
 </section>
 
 {% if o.style_fingerprint %}

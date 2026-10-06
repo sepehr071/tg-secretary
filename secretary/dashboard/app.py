@@ -49,7 +49,7 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
         if path != "/login" and not path.startswith("/static/"):
             if not await auth.session_valid(request.cookies.get(auth.COOKIE)):
                 if request.method == "GET":
-                    return RedirectResponse("/login", status_code=303)
+                    return RedirectResponse(settings.dashboard_root_path + "/login", status_code=303)
                 return PlainTextResponse("login required", status_code=401)
             request.state.pending = await db.count_open_pending()
         return await call_next(request)
@@ -66,7 +66,7 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
                 request, "login.html", status_code=401,
                 err="That link is invalid, used or expired. Send /dashboard to your bot for a new one.",
             )
-        resp = RedirectResponse("/", status_code=303)
+        resp = RedirectResponse(settings.dashboard_root_path + "/", status_code=303)
         resp.set_cookie(auth.COOKIE, session, max_age=auth.SESSION_TTL, httponly=True,
                         samesite="strict", path="/",
                         secure=settings.dashboard_public_url.startswith("https://"))
@@ -75,7 +75,7 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
     @app.post("/logout")
     async def logout(request: Request):
         await auth.end_session(request.cookies.get(auth.COOKIE))
-        resp = RedirectResponse("/login", status_code=303)
+        resp = RedirectResponse(settings.dashboard_root_path + "/login", status_code=303)
         resp.delete_cookie(auth.COOKIE, path="/")
         return resp
 
