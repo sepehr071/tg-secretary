@@ -421,6 +421,50 @@ async def check_amounts() -> None:
         assert happ.parse_amount(bad) is None, bad
 
 
+from hosting import proxy  # noqa: E402
+
+
+@check
+async def check_proxy() -> None:
+    app = happ.create_app()
+    await db.upsert_user(40, "P", None)
+    tid = await db.create_tenant(40)
+    cookie = await db.create_session(40)
+    async with web(app, cookie) as c:
+        r = await c.get("/app/")                                   # not running yet
+        assert r.status_code == 303 and r.headers["location"] == "/account"
+
+    await db.update_tenant(tid, status="running", proxy_secret="sek")
+    port = await db.alloc_port(tid)
+    seen = []
+
+    def upstream(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        return httpx.Response(303, headers={"location": "/app/settings?msg=ok", "set-cookie": "x=1"})
+
+    proxy.TRANSPORT = httpx.MockTransport(upstream)
+    async with web(app, cookie) as c:
+        r = await c.post("/app/settings/config?a=1", data={"HISTORY_TURNS": "9"})
+        assert r.status_code == 303 and r.headers["location"] == "/app/settings?msg=ok"
+        assert "x=1" not in r.headers.get("set-cookie", "")
+    req = seen[-1]
+    assert str(req.url) == f"http://127.0.0.1:{port}/settings/config?a=1"
+    assert req.headers["x-platform-auth"] == "sek"
+    assert b"HISTORY_TURNS=9" in req.content
+    assert "cookie" not in req.headers                              # platform session never leaks
+
+    def down(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+    proxy.TRANSPORT = httpx.MockTransport(down)
+    async with web(app, cookie) as c:
+        r = await c.get("/app/")
+        assert r.status_code == 503 and "ربات" in r.text           # Persian "starting" page
+    proxy.TRANSPORT = None
+
+    async with web(app) as c:                                       # no session
+        assert (await c.get("/app/")).status_code == 303
+
+
 async def main() -> None:
     await db.init(settings.db_path)
     try:
