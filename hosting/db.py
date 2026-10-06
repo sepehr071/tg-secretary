@@ -60,10 +60,6 @@ UPDATABLE = {"bot_username", "status", "profile_done", "proxy_secret", "or_key_h
 _conn: aiosqlite.Connection | None = None
 
 
-class BotTaken(Exception):
-    """The bot is already attached to another tenant."""
-
-
 def _db() -> aiosqlite.Connection:
     if _conn is None:
         raise RuntimeError("hosting.db.init() not called")
@@ -175,10 +171,6 @@ async def get_tenant_by_owner(tg_id: int) -> dict[str, Any] | None:
     return await _one("SELECT * FROM tenants WHERE owner_tg_id=? AND status!='deleted'", tg_id)
 
 
-async def get_tenant_by_bot(bot_id: int) -> dict[str, Any] | None:
-    return await _one("SELECT * FROM tenants WHERE bot_id=?", bot_id)
-
-
 async def list_tenants() -> list[dict[str, Any]]:
     async with _db().execute("SELECT * FROM tenants WHERE status!='deleted' ORDER BY id") as cur:
         return [dict(r) for r in await cur.fetchall()]
@@ -192,17 +184,6 @@ async def update_tenant(tid: int, **fields: Any) -> None:
         return
     sets = ", ".join(f"{k}=?" for k in fields)
     await _write(f"UPDATE tenants SET {sets} WHERE id=?", *fields.values(), tid)
-
-
-async def set_tenant_bot(tid: int, bot_id: int, bot_username: str, managed: bool) -> None:
-    owner = await get_tenant_by_bot(bot_id)
-    if owner is not None and owner["id"] != tid:
-        raise BotTaken(bot_username)
-    try:
-        await _write("UPDATE tenants SET bot_id=?, bot_username=?, managed=? WHERE id=?",
-                     bot_id, bot_username, int(managed), tid)
-    except sqlite3.IntegrityError as e:  # lost a race with another attach
-        raise BotTaken(bot_username) from e
 
 
 async def alloc_port(tid: int) -> int:

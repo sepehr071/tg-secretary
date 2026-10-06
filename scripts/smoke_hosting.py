@@ -58,15 +58,8 @@ async def check_db() -> None:
     await db.update_tenant(tid)                           # no fields: no-op, not a SQL error
     assert (await db.get_tenant_by_owner(10))["id"] == tid
 
-    await db.set_tenant_bot(tid, 555, "ali_bot", managed=False)
-    await db.set_tenant_bot(tid, 555, "ali_bot", managed=False)   # same owner re-attach: fine
     await db.upsert_user(11, "Reza", "reza")
     other = await db.create_tenant(11)
-    try:
-        await db.set_tenant_bot(other, 555, "ali_bot", managed=False)
-        raise AssertionError("bot reuse across tenants must fail")
-    except db.BotTaken:
-        pass
 
     p1 = await db.alloc_port(tid)
     assert p1 == await db.alloc_port(tid)                 # stable per tenant
@@ -200,16 +193,15 @@ async def check_provisioning() -> None:
 
     await db.upsert_user(20, "Sara", "sara")
     tid = await db.create_tenant(20)
-    me = await tenants.attach_bot(await db.get_tenant(tid), "777:tok", managed=False)
-    assert me["username"] == "sara_bot"
+    assert not hasattr(tenants, "attach_bot")
+    await tenants.save_profile(tid, "Sara", "I study law", "short, lowercase", "never promise money")
     env = (tenants.tenant_dir(tid) / ".env").read_text(encoding="utf-8")
-    assert "777:tok" in env and "OWNER_USER_ID='20'" in env and "HOSTED='1'" in env
+    assert "TG_BOT_TOKEN='1:platform'" in env and "OWNER_USER_ID='20'" in env and "HOSTED='1'" in env
+    assert "OWNER_FIRST_NAME='Sara'" in env, env
     if os.name == "posix":
         assert stat.S_IMODE((tenants.tenant_dir(tid) / ".env").stat().st_mode) == 0o600
     personas = {p.name for p in (tenants.tenant_dir(tid) / "prompts" / "personas").iterdir()}
     assert personas and all(n.endswith(".example.txt") for n in personas), personas  # never real personas
-
-    await tenants.save_profile(tid, "Sara", "I study law", "short, lowercase", "never promise money")
     about = (tenants.tenant_dir(tid) / "prompts" / "about_me.txt").read_text(encoding="utf-8")
     assert "I study law" in about and "never promise money" in about
     assert (await db.get_tenant(tid))["profile_done"] == 1
@@ -248,7 +240,7 @@ async def check_provisioning() -> None:
     # OpenRouter PATCH fails first: raises, retry applies old+amount exactly once.
     await db.upsert_user(22, "Neda", None)
     t3 = await db.create_tenant(22)
-    await db.set_tenant_bot(t3, 888, "neda_bot", managed=False)
+    await db.update_tenant(t3, profile_done=1)
     or_state["fail_patch"] = True
     try:
         await tenants.top_up(t3, 4.0, "400k", "", 1, "r-fail")
@@ -264,7 +256,7 @@ async def check_provisioning() -> None:
     await tenants.top_up(t3, 4.0, "400k", "", 1, "r-fail")
     assert len(or_state["patches"]) == n + 1
 
-    # Unknown tenant / no bot: ValueError, no payment row.
+    # Unknown tenant / profile not done: ValueError, no payment row.
     for bad in (9999, (await db.create_tenant(23))):
         try:
             await tenants.top_up(bad, 1.0, "", "", 1, "r-bad%d" % bad)
@@ -284,15 +276,6 @@ async def check_provisioning() -> None:
     pm2.start(5, tenants.tenant_dir(tid))
     assert ["restart", "tgs-5"] in PM2_CALLS and not any(c[0] == "start" for c in PM2_CALLS), PM2_CALLS
     pm2.RUN = fake_run
-
-    # Another user cannot claim sara_bot.
-    await db.upsert_user(21, "X", None)
-    other = await db.create_tenant(21)
-    try:
-        await tenants.attach_bot(await db.get_tenant(other), "777:tok", managed=False)
-        raise AssertionError("must refuse")
-    except db.BotTaken:
-        pass
 
     # Connected check reads the tenant's own secretary.db.
     assert await tenants.is_connected(tid) is False
@@ -351,20 +334,13 @@ async def check_routes() -> None:
         # Resume logic.
         assert await happ.next_step(30) == "consent"
         assert (await c.get("/account")).headers["location"] == "/onboard/consent"
-        assert (await c.post("/onboard/bot/token", data={"token": "1:x"})).status_code == 303
+        form = {"first_name": "Mina", "about": "x", "style": "", "never": ""}
+        assert (await c.post("/onboard/profile", data=form)).status_code == 303
         assert await db.get_tenant_by_owner(30) is None                # no tenant without consent
         await c.post("/onboard/consent", data={"accept": "1"})
-        assert await happ.next_step(30) == "bot"
-
-        tg.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={
-            "ok": True, "result": {"id": 901, "username": "mina_bot", "can_connect_to_business": False}}))
-        r = await c.post("/onboard/bot/token", data={"token": "901:abc"})
-        assert r.status_code == 303
-        st = (await c.get("/onboard/bot/status")).json()
-        assert st == {"attached": True, "username": "mina_bot", "needs_secretary": True}
         assert await happ.next_step(30) == "profile"
 
-        await c.post("/onboard/profile", data={"first_name": "Mina", "about": "x", "style": "", "never": ""})
+        await c.post("/onboard/profile", data=form)
         assert await happ.next_step(30) == "payment"                   # trial credit is 0
         assert (await db.get_tenant_by_owner(30))["status"] == "awaiting_credit"
 
@@ -376,8 +352,34 @@ async def check_routes() -> None:
 
 
 @check
+async def check_onboarding_v2() -> None:
+    app = happ.create_app()
+    await db.upsert_user(120, "Nil", "nil")
+    cookie = await db.create_session(120)
+    async with web(app, cookie) as c:
+        assert await happ.next_step(120) == "consent"
+        await c.post("/onboard/consent", data={"accept": "1"})
+        assert await happ.next_step(120) == "profile"
+        r = await c.get("/onboard/bot")                       # old URL
+        assert r.status_code == 303 and r.headers["location"] == "/account"
+        await c.post("/onboard/profile", data={"first_name": "Nil", "about": "x", "style": "", "never": ""})
+        assert await happ.next_step(120) == "payment"
+        t = await db.get_tenant_by_owner(120)
+        env = (tenants.tenant_dir(t["id"]) / ".env").read_text(encoding="utf-8")
+        for k in ("TG_BOT_TOKEN='1:platform'", "OWNER_USER_ID='120'", "HOSTED='1'",
+                  "DASHBOARD_ROOT_PATH='/app'", "DASHBOARD_LANG='fa'"):
+            assert k in env, k
+        r = await c.get("/account")
+        assert "@plat_bot" in r.text and "Chat Automation" in r.text
+        await db.update_tenant(t["id"], status="running")
+        r = await c.get("/account")
+        assert "@plat_bot" in r.text and "Chat Automation" in r.text
+    assert not hasattr(tenants, "attach_bot")
+
+
+@check
 async def check_pay_before_profile() -> None:
-    """Admin pays while the profile is unfinished: nothing starts until the profile is submitted."""
+    """Admin cannot credit a tenant whose profile is unfinished; paying after the profile starts it."""
     pm2.RUN = fake_run
     or_state = {"limit": 0.0}
 
@@ -396,18 +398,21 @@ async def check_pay_before_profile() -> None:
     await db.upsert_user(31, "Zoya", "zoya")
     await db.add_consent(31, settings.consent_version)
     tid = await db.create_tenant(31)
-    await db.set_tenant_bot(tid, 931, "zoya_bot", managed=False)
     async with web(app, await db.create_session(1)) as c:
         r = await c.post("/admin/payment", data={"tenant_id": tid, "amount_usd": "۵", "client_ref": "z-1"})
-        assert r.status_code == 303 and "msg=" in r.headers["location"], r.headers["location"]
+        assert r.status_code == 303 and "err=" in r.headers["location"], r.headers["location"]
+        assert await db.get_payment("z-1") is None
         r = await c.post("/admin/payment", data={"tenant_id": 99999, "amount_usd": "5", "client_ref": "z-2"})
         assert "err=" in r.headers["location"]                          # unknown tenant: flash, not 500
         assert (await c.get("/admin")).status_code == 200
-    t = await db.get_tenant(tid)
-    assert t["or_key_hash"] == "hz" and t["status"] != "running" and or_state["limit"] == 5.0
     async with web(app, await db.create_session(31)) as c:
         await c.post("/onboard/profile", data={"first_name": "Zoya", "about": "x", "style": "", "never": ""})
-    assert (await db.get_tenant(tid))["status"] == "running"
+    assert (await db.get_tenant(tid))["status"] == "awaiting_credit"
+    async with web(app, await db.create_session(1)) as c:
+        r = await c.post("/admin/payment", data={"tenant_id": tid, "amount_usd": "۵", "client_ref": "z-1"})
+        assert "msg=" in r.headers["location"], r.headers["location"]
+    t = await db.get_tenant(tid)
+    assert t["or_key_hash"] == "hz" and t["status"] == "running" and or_state["limit"] == 5.0
     openrouter.TRANSPORT = None
 
 
@@ -447,7 +452,6 @@ async def check_hardening() -> None:
     await db.upsert_user(41, "Sina", None)
     await db.add_consent(41, settings.consent_version)
     t41 = await db.create_tenant(41)
-    await db.set_tenant_bot(t41, 941, "sina_bot", managed=False)
     await tenants.ensure_key(t41)
     await db.update_tenant(t41, status="stopped", profile_done=1)
     cookie41 = await db.create_session(41)
@@ -467,21 +471,10 @@ async def check_hardening() -> None:
         finally:
             settings.consent_version = old
 
-    # 4. A bot owned by another tenant cannot be attached.
-    await db.upsert_user(42, "Taken", None)
-    await db.add_consent(42, settings.consent_version)
-    tg.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={
-        "ok": True, "result": {"id": 901, "username": "mina_bot", "can_connect_to_business": False}}))
-    async with web(app, await db.create_session(42)) as c:
-        r = await c.post("/onboard/bot/token", data={"token": "901:abc"})
-        assert r.status_code == 303 and "err=" in r.headers["location"], r.headers["location"]
-    assert (await db.get_tenant_by_bot(901))["owner_tg_id"] == 30
-    assert ((await db.get_tenant_by_owner(42)) or {}).get("bot_id") is None
-
     # 5 + 6 + 8. Admin payment form: duplicate, bad amounts, bad tenant id.
     await db.upsert_user(43, "Pay", None)
     t43 = await db.create_tenant(43)
-    await db.set_tenant_bot(t43, 943, "pay_bot", managed=False)
+    await db.update_tenant(t43, profile_done=1)
     async with web(app, await db.create_session(1)) as c:
         pay = {"tenant_id": str(t43), "amount_usd": "5", "client_ref": "h-1"}
         first = (await c.post("/admin/payment", data=pay)).headers["location"]
@@ -699,7 +692,6 @@ async def check_delete_best_effort() -> None:
     app = happ.create_app()
     await db.upsert_user(61, "Del", None)
     tid = await db.create_tenant(61)
-    await db.set_tenant_bot(tid, 961, "del_bot", managed=True)
     tenants.write_env(tid, {"TG_BOT_TOKEN": "961:secret"})
     await db.update_tenant(tid, or_key_hash="hdel")
     openrouter.TRANSPORT = httpx.MockTransport(_or_mock({"fail_all": True}))
@@ -722,7 +714,7 @@ async def check_idempotent_credit() -> None:
     openrouter.TRANSPORT = httpx.MockTransport(_or_mock(st))
     await db.upsert_user(62, "Pay2", None)
     tid = await db.create_tenant(62)
-    await db.set_tenant_bot(tid, 962, "pay2_bot", managed=False)
+    await db.update_tenant(tid, profile_done=1)
     st["timeout_once"] = True                                       # PATCH lands, response lost
     try:
         await tenants.top_up(tid, 3.0, "", "", 1, "i-1")
@@ -745,7 +737,6 @@ async def check_idempotent_credit() -> None:
         await db.add_consent(63, settings.consent_version)
         for i, expect in enumerate((2.0, 0.0)):
             t = await db.create_tenant(63)
-            await db.set_tenant_bot(t, 9630 + i, f"trial{i}_bot", managed=False)
             async with web(app, await db.create_session(63)) as c:
                 assert (await c.post("/onboard/profile", data=form)).status_code == 303
             assert st["patches"][-1] == expect, (i, st)
@@ -766,23 +757,8 @@ async def check_minor_fixes() -> None:
     finally:
         settings.tenants_root = old_root
 
-    # 5. token pasted over a managed bot revokes the old managed token
-    calls = []
-
-    def tg_handler(req: httpx.Request) -> httpx.Response:
-        method = req.url.path.rsplit("/", 1)[1]
-        calls.append((method, json.loads(req.content or b"{}")))
-        return httpx.Response(200, json={"ok": True, "result": {"id": 971, "username": "new_bot"}})
-
-    tg.TRANSPORT = httpx.MockTransport(tg_handler)
     await db.upsert_user(64, "Over", None)
     tid = await db.create_tenant(64)
-    await db.set_tenant_bot(tid, 970, "old_bot", managed=True)
-    await tenants.attach_bot(await db.get_tenant(tid), "971:tok", managed=False)
-    assert ("replaceManagedBotToken", {"user_id": 970}) in calls, calls
-    t = await db.get_tenant(tid)
-    assert t["bot_id"] == 971 and t["managed"] == 0
-    tg.TRANSPORT = None
 
     # 6. pm2 subprocess env carries no hosting secrets
     seen = {}

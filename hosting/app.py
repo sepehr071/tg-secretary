@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, oidc, openrouter, pm2, tenants, tg
+from . import db, oidc, openrouter, pm2, tenants
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -40,16 +40,14 @@ async def next_step(tg_id: int) -> str:
     if not await db.has_consent(tg_id, settings.consent_version):
         return "consent"
     t = await db.get_tenant_by_owner(tg_id)
-    if t is None or not t["bot_id"]:
-        return "bot"
-    if not t["profile_done"]:
+    if t is None or not t["profile_done"]:
         return "profile"
     if t["status"] in ("draft", "awaiting_credit"):
         return "payment"
     return "account"
 
 
-STEP_URL = {"consent": "/onboard/consent", "bot": "/onboard/bot", "profile": "/onboard/profile"}
+STEP_URL = {"consent": "/onboard/consent", "profile": "/onboard/profile"}
 
 
 def render(request: Request, name: str, status_code: int = 200, **ctx: Any):
@@ -156,6 +154,7 @@ def create_app() -> FastAPI:
                 log.warning("credit lookup failed for tenant %s", t["id"])
         return render(request, "account.html", tenant=t, credit=credit,
                       payment_instructions=settings.payment_instructions,
+                      bot_username=settings.platform_bot_username,
                       connected=await tenants.is_connected(t["id"]))
 
     @app.get("/account/connected")
@@ -180,50 +179,9 @@ def create_app() -> FastAPI:
             t = await db.get_tenant(await db.create_tenant(uid(request)))
         return t
 
-    def _managed_link(request: Request) -> str:
-        suggested = f"{(request.state.user.get('username') or 'my')}_secretary_bot"[:32]
-        return f"https://t.me/newbot/{settings.platform_bot_username}/{suggested}?name=Secretary"
-
-    async def _can_business(t: dict) -> bool:
-        from dotenv import dotenv_values
-        token = dotenv_values(tenants.tenant_dir(t["id"]) / ".env").get("TG_BOT_TOKEN")
-        if not token:
-            return False
-        try:
-            return bool((await tg.call(token, "getMe")).get("can_connect_to_business"))
-        except tg.TelegramError:
-            return False
-
     @app.get("/onboard/bot")
-    async def bot_page(request: Request):
-        if await next_step(uid(request)) == "consent":
-            return RedirectResponse("/onboard/consent", status_code=303)
-        t = await _tenant_for(request)  # the managed_bot update needs a tenant row to attach to
-        return render(request, "onboard_bot.html", managed_link=_managed_link(request),
-                      bot_username=(t or {}).get("bot_username") or "",
-                      needs_secretary=bool(t and t["bot_id"]) and not await _can_business(t))
-
-    @app.post("/onboard/bot/token")
-    async def bot_token(request: Request, token: str = Form("")):
-        if await next_step(uid(request)) == "consent":
-            return RedirectResponse("/onboard/consent", status_code=303)
-        token = token.strip()
-        if ":" not in token:
-            return go("/onboard/bot", err="توکن درست نیست.")
-        try:
-            await tenants.attach_bot(await _tenant_for(request), token, managed=False)
-        except db.BotTaken:
-            return go("/onboard/bot", err="این ربات قبلاً به حساب دیگری وصل شده.")
-        except tg.TelegramError:
-            return go("/onboard/bot", err="تلگرام این توکن را نپذیرفت.")
+    async def bot_page():  # old bookmarks: the per-user bot step no longer exists
         return RedirectResponse("/account", status_code=303)
-
-    @app.get("/onboard/bot/status")
-    async def bot_status(request: Request):
-        t = await db.get_tenant_by_owner(uid(request))
-        attached = bool(t and t["bot_id"])
-        return JSONResponse({"attached": attached, "username": (t or {}).get("bot_username") or "",
-                             "needs_secretary": attached and not await _can_business(t)})
 
     @app.get("/onboard/profile")
     async def profile_page(request: Request):
@@ -236,9 +194,7 @@ def create_app() -> FastAPI:
                       style: str = Form(""), never: str = Form("")):
         if await next_step(uid(request)) == "consent":
             return RedirectResponse("/onboard/consent", status_code=303)
-        t = await db.get_tenant_by_owner(uid(request))
-        if t is None or not t["bot_id"]:
-            return RedirectResponse("/account", status_code=303)
+        t = await _tenant_for(request)
         await tenants.save_profile(t["id"], first_name, about, style, never)
         if t["status"] not in ("draft", "awaiting_credit"):
             return RedirectResponse("/account", status_code=303)  # running/stopped: profile edit only
@@ -298,7 +254,7 @@ def create_app() -> FastAPI:
         try:
             added = await tenants.top_up(tenant_id, amount, paid_text, note, uid(request), client_ref)
         except ValueError:
-            return go("/admin", err="این حساب هنوز آماده نیست (ربات ندارد).")
+            return go("/admin", err="این حساب هنوز آماده نیست (معرفی را کامل نکرده).")
         except Exception as e:  # noqa: BLE001 - show the failure, payment row is kept for retry
             log.exception("top-up failed")
             await db.update_tenant(tenant_id, last_error=f"top-up: {e}")

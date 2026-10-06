@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import set_key
 
-from . import db, openrouter, pm2, tg
+from . import db, openrouter, pm2
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -42,34 +42,21 @@ def write_env(tid: int, values: dict[str, str]) -> None:
         set_key(env, k, v)  # quotes values, so names with spaces or '#' are safe
 
 
-async def attach_bot(tenant: dict, token: str, managed: bool) -> dict:
-    me = await tg.call(token, "getMe")
-    old_id = tenant["bot_id"]
-    await db.set_tenant_bot(tenant["id"], me["id"], me.get("username", ""), managed)
-    if tenant["managed"] and old_id and old_id != me["id"]:
-        try:  # the replaced managed bot's stored token must stop working
-            await tg.call(settings.platform_bot_token, "replaceManagedBotToken", user_id=old_id)
-        except Exception as e:  # noqa: BLE001
-            log.warning("old managed bot token not revoked: %s", type(e).__name__)
-    user = await db.get_user(tenant["owner_tg_id"])
-    write_env(tenant["id"], {
-        "TG_BOT_TOKEN": token, "OWNER_USER_ID": str(tenant["owner_tg_id"]),
-        "OWNER_FIRST_NAME": (user or {}).get("first_name") or "the owner",
-        "HOSTED": "1", "DASHBOARD_ROOT_PATH": "/app", "DASHBOARD_LANG": "fa",
-    })
-    if tenant["status"] == "running":
-        await asyncio.to_thread(pm2.restart, tenant["id"])
-    return me
-
-
 async def save_profile(tid: int, first_name: str, about: str, style: str, never: str) -> None:
+    t = await db.get_tenant(tid)
+    if t is None:
+        raise ValueError(f"no tenant {tid}")
     parts = [about.strip()]
     if style.strip():
         parts.append(f"How I write: {style.strip()}")
     if never.strip():
         parts.append(f"Never: {never.strip()}")
     (_ensure_dir(tid) / "prompts" / "about_me.txt").write_text("\n\n".join(p for p in parts if p) + "\n", encoding="utf-8")
-    write_env(tid, {"OWNER_FIRST_NAME": first_name.strip() or "the owner"})
+    write_env(tid, {
+        "TG_BOT_TOKEN": settings.platform_bot_token, "OWNER_USER_ID": str(t["owner_tg_id"]),
+        "OWNER_FIRST_NAME": first_name.strip() or "the owner",
+        "HOSTED": "1", "DASHBOARD_ROOT_PATH": "/app", "DASHBOARD_LANG": "fa",
+    })
     await db.update_tenant(tid, profile_done=1)
 
 
@@ -114,7 +101,7 @@ async def top_up(tid: int, amount_usd: float, paid_text: str, note: str,
     """True = new payment row. Safe to retry with the same client_ref after any failure:
     credit is applied once (payments.applied) and activation is re-attempted."""
     t = await db.get_tenant(tid)
-    if t is None or not t["bot_id"]:
+    if t is None or not t["profile_done"]:
         raise ValueError("tenant not ready")
     async with _locks.setdefault(tid, asyncio.Lock()):
         inserted = await db.add_payment(tid, amount_usd, paid_text, note, admin_tg_id, client_ref)
@@ -143,12 +130,6 @@ async def delete(tid: int) -> None:
             await openrouter.disable_key(t["or_key_hash"])
         except Exception as e:  # noqa: BLE001
             errors.append(f"disable key: {type(e).__name__}")
-    if t["managed"] and t["bot_id"]:
-        # Kill the old token so nothing we stored can still drive the bot.
-        try:
-            await tg.call(settings.platform_bot_token, "replaceManagedBotToken", user_id=t["bot_id"])
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"revoke bot token: {type(e).__name__}")
     if errors:  # type names only: exception text can carry URLs
         log.warning("tenant %s delete incomplete: %s", tid, "; ".join(errors))
         await db.update_tenant(tid, last_error="delete: " + "; ".join(errors))

@@ -10,14 +10,13 @@
 <div class="table-wrap">
 <table class="admin">
   <thead>
-    <tr><th>شناسه</th><th>کاربر</th><th>ربات</th><th>وضعیت</th><th>مصرف / سقف (دلار)</th><th>پردازه</th><th>آخرین خطا</th><th>کارها</th></tr>
+    <tr><th>شناسه</th><th>کاربر</th><th>وضعیت</th><th>مصرف / سقف (دلار)</th><th>پردازه</th><th>آخرین خطا</th><th>کارها</th></tr>
   </thead>
   <tbody>
   {% for r in rows %}
     <tr>
       <td>{{ r.id }}</td>
       <td><span dir="auto">{{ r.first_name or "—" }}</span><br><bdi class="hint" dir="ltr">{{ r.owner_tg_id }}</bdi></td>
-      <td>{% if r.bot_username %}<bdi dir="ltr">@{{ r.bot_username }}</bdi>{% else %}—{% endif %}</td>
       <td><span class="tag tag-{{ r.status }}">{% if r.status in labels %}{{ labels[r.status]|safe }}{% else %}{{ r.status }}{% endif %}</span></td>
       <td><bdi dir="ltr">{{ "%.2f"|format(r.usage) if r.usage is not none else "—" }} / {{ "%.2f"|format(r.limit) if r.limit is not none else "—" }}</bdi></td>
       <td><bdi dir="ltr">{{ r.pm2_status }}</bdi><br><span class="hint">راه&zwnj;اندازی دوباره: {{ r.restarts }}</span></td>

@@ -3,17 +3,26 @@
 {% macro fa(n) %}{{ ("%.2f"|format(n or 0))|replace("0","۰")|replace("1","۱")|replace("2","۲")|replace("3","۳")|replace("4","۴")|replace("5","۵")|replace("6","۶")|replace("7","۷")|replace("8","۸")|replace("9","۹")|replace(".","٫") }}{% endmacro %}
 {% block content %}
 {% if tenant.status in ("draft", "awaiting_credit") %}
-<p class="stage">مرحله&zwnj;ی ۴ از ۴</p>
+<p class="stage">مرحله&zwnj;ی ۳ از ۳</p>
 <h1>شارژ اعتبار</h1>
 <p class="lead">منشی آماده است و فقط منتظر اعتبار است. هزینه&zwnj;ی هر پاسخ از این اعتبار کم می&zwnj;شود.</p>
 {% if payment_instructions %}
 <div class="panel pay" dir="auto">{{ payment_instructions }}</div>
 {% endif %}
-<p>پس از پرداخت، مدیر سرویس اعتبار را به حساب شما اضافه می&zwnj;کند و منشی روشن می&zwnj;شود. لازم نیست کار دیگری بکنید؛ دوباره به همین صفحه سر بزنید.</p>
+<p>پس از پرداخت، مدیر سرویس اعتبار را به حساب شما اضافه می&zwnj;کند و منشی روشن می&zwnj;شود.</p>
+
+<section class="block">
+  <h2>اتصال به تلگرام</h2>
+  <p>تا منتظر اعتبار هستید، همین حالا منشی را به حسابتان وصل کنید. در تلگرام این مسیر را بروید:</p>
+  <ol class="steps compact">
+    <li><span>تنظیمات تلگرام</span></li>
+    <li><span><bdi dir="ltr">Chat Automation</bdi></span></li>
+    <li><span>انتخاب <bdi dir="ltr">@{{ bot_username }}</bdi></span></li>
+  </ol>
+</section>
 
 {% elif tenant.status == "running" %}
 <h1>منشی شما روشن است</h1>
-{% if tenant.bot_username %}<p class="lead">ربات: <bdi dir="ltr">@{{ tenant.bot_username }}</bdi></p>{% endif %}
 
 <section class="block">
   <h2>اعتبار</h2>
@@ -36,7 +45,7 @@
   <ol class="steps compact">
     <li><span>تنظیمات تلگرام</span></li>
     <li><span><bdi dir="ltr">Chat Automation</bdi></span></li>
-    <li><span>انتخاب <bdi dir="ltr">@{{ tenant.bot_username }}</bdi></span></li>
+    <li><span>انتخاب <bdi dir="ltr">@{{ bot_username }}</bdi></span></li>
   </ol>
   <p class="hint">بعد از انتخاب، این صفحه خودش به&zwnj;روز می&zwnj;شود.</p>
   {% endif %}
@@ -50,14 +59,14 @@
 
 {% else %}
 <h1>منشی شما خاموش است</h1>
-{% if tenant.bot_username %}<p class="lead">ربات: <bdi dir="ltr">@{{ tenant.bot_username }}</bdi></p>{% endif %}
 <p>منشی فعلاً به پیامی پاسخ نمی&zwnj;دهد. برای روشن کردن دوباره با مدیر سرویس تماس بگیرید.</p>
 {% endif %}
 
 <details class="danger">
   <summary>حذف حساب</summary>
   <form method="post" action="/account/delete">
-    <p>با حذف حساب، ربات خاموش و همه&zwnj;ی داده&zwnj;های شما پاک می&zwnj;شود. این کار برگشت ندارد.</p>
+    <p>با حذف حساب، منشی خاموش و همه&zwnj;ی داده&zwnj;های شما پاک می&zwnj;شود. این کار برگشت ندارد.</p>
+    <p>بعد از حذف، در تلگرام از مسیر تنظیمات، <bdi dir="ltr">Chat Automation</bdi> هم ربات <bdi dir="ltr">@{{ bot_username }}</bdi> را بردارید.</p>
     <label for="confirm">برای تأیید، کلمه&zwnj;ی «حذف» را بنویسید</label>
     <input id="confirm" name="confirm" type="text" dir="auto" autocomplete="off" required>
     <button class="btn danger-btn">حذف همیشگی حساب</button>
