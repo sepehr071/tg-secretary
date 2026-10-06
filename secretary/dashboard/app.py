@@ -17,7 +17,7 @@ from .. import db
 from ..config import settings
 from ..setup import ENV_PATH
 from . import auth, contacts, drafts, pages
-from .web import render
+from .web import render, t
 
 log = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve().parent
@@ -64,7 +64,7 @@ def create_app(bot: Any, request_stop: Callable[[], None], env_path: Path = ENV_
         if session is None:
             return render(
                 request, "login.html", status_code=401,
-                err="That link is invalid, used or expired. Send /dashboard to your bot for a new one.",
+                err=t("That link is invalid, used or expired. Send /dashboard to your bot for a new one."),
             )
         resp = RedirectResponse(settings.dashboard_root_path + "/", status_code=303)
         resp.set_cookie(auth.COOKIE, session, max_age=auth.SESSION_TTL, httponly=True,

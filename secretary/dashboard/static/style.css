@@ -3,7 +3,7 @@
 body { margin: 0 auto; max-width: 980px; padding: 16px; font: 15px/1.5 system-ui, sans-serif; }
 nav { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding-bottom: 12px;
       border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-nav form { margin-left: auto; }
+nav form { margin-inline-start: auto; }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px; }
 label { display: block; margin: 8px 0; }
 input:not([type=checkbox]), select, textarea { font: inherit; padding: 4px 6px; max-width: 100%; }
@@ -19,3 +19,4 @@ th, td { text-align: start; padding: 4px 8px; border-bottom: 1px solid var(--lin
 small { color: var(--muted); }
 blockquote { margin: 8px 0; padding-inline-start: 10px; border-inline-start: 3px solid var(--line); }
 pre { white-space: pre-wrap; }
+[dir="rtl"] nav, [dir="rtl"] main { text-align: right; }

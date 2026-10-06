@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request
 
 from .. import db, setup
 from ..config import settings
-from .web import back, render
+from .web import back, render, t
 
 router = APIRouter()
 
@@ -139,7 +139,7 @@ async def save_live(request: Request):
         raw = field(key)
         n = _to_int(raw) if raw else None
         if raw and (n is None or n < 0):
-            return back("/settings", err=f"{label} must be a whole number (blank = default).")
+            return back("/settings", err=f"{t(label)} " + t("must be a whole number (blank = default)."))
         submitted[key] = "" if n is None else str(n)  # "" = env default, same as /delay off
     # Only what changed on this page: a stale tab must not undo a /pause sent from the
     # phone, nor wipe quiet hours the time input couldn't display.
@@ -166,13 +166,13 @@ async def save_config(request: Request):
     for key, old in current.items():
         new = str(form.get(key, "")).strip()
         if not new:
-            return back("/settings", err=f"{key} can't be empty.")
+            return back("/settings", err=f"{key} " + t("can't be empty."))
         if key in ("HISTORY_TURNS", "OWNER_USER_ID"):
             # pydantic rejects non-ASCII digits at import: a raw "۸۰۱" in .env would
             # crash-loop the bot after restart, so store the ASCII form.
             n = _to_int(new)
             if n is None or n <= 0:
-                return back("/settings", err=f"{key} must be a positive whole number.")
+                return back("/settings", err=f"{key} " + t("must be a positive whole number."))
             new = str(n)
         if new != old:
             changes[key] = new
@@ -181,7 +181,7 @@ async def save_config(request: Request):
     ids = await _model_ids()
     for key in CHECKED_MODEL_KEYS:
         if key in changes and ids is not None and changes[key] not in ids:
-            return back("/settings", err=f"Unknown model id: {changes[key]}")
+            return back("/settings", err=t("Unknown model id:") + f" {changes[key]}")
     if not settings.hosted:
         token = str(form.get("TG_BOT_TOKEN", "")).strip()
         api_key = str(form.get("OPENROUTER_API_KEY", "")).strip()
@@ -195,13 +195,13 @@ async def save_config(request: Request):
         except setup.SetupError as e:
             return back("/settings", err=str(e))
         except httpx.TransportError as e:
-            return back("/settings", err=f"Couldn't reach the service to check it ({type(e).__name__}); nothing saved.")
+            return back("/settings", err=t("Couldn't reach the service to check it; nothing saved.") + f" ({type(e).__name__})")
     if not changes:
         return back("/settings", msg="Nothing changed.")
     try:
         setup.merge_env(request.app.state.env_path, setup.EXAMPLE_PATH, changes)
     except OSError as e:
-        return back("/settings", err=f"Couldn't write .env ({e}); nothing applied.")
+        return back("/settings", err=t("Couldn't write .env; nothing applied.") + f" ({e})")
     for key in LIVE_ENV_KEYS:
         if key in changes:
             setattr(settings, key.lower(), int(changes[key]) if key == "HISTORY_TURNS" else changes[key])

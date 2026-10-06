@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 
 from .. import commands, db
-from .web import back, render
+from .web import back, render, t
 
 router = APIRouter()
 
@@ -22,7 +22,7 @@ async def resolve(request: Request, pid: int, action: str = Form(""), text: str 
     elif action == "send":
         pending = await db.get_pending(pid)
         if pending is None:
-            return back("/drafts", err=f"pending #{pid} not found")
+            return back("/drafts", err=t("Pending reply not found:") + f" #{pid}")
         body = text.replace("\r\n", "\n").strip()
         if not body:
             return back("/drafts", err="The reply is empty.")

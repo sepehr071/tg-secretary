@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Drafts</h1>
+<h1>{{ "Drafts"|t }}</h1>
 {% for d in drafts %}
 <form method="post" action="{{ root }}/drafts/{{ d.id }}" class="card">
   <p><a href="{{ root }}/contacts/{{ d.chat_id }}" dir="auto">{{ d.contact_name or d.chat_id }}</a>
-     <small>#{{ d.id }} · expires {{ d.expires_at|ts }}</small></p>
+     <small>#{{ d.id }} · {{ "expires"|t }} {{ d.expires_at|ts }}</small></p>
   <blockquote dir="auto">{{ d.contact_msg }}</blockquote>
   <textarea name="text" rows="3" dir="auto">{{ d.draft }}</textarea>
-  <button name="action" value="send">Send</button>
-  <button name="action" value="skip">Skip</button>
-  <small>Edit the text before sending if you like.</small>
+  <button name="action" value="send">{{ "Send"|t }}</button>
+  <button name="action" value="skip">{{ "Skip"|t }}</button>
+  <small>{{ "Edit the text before sending if you like."|t }}</small>
 </form>
 {% else %}
-<p>No drafts waiting. Approval mode and the inner-circle gate put replies here.</p>
+<p>{{ "No drafts waiting. Approval mode and the inner-circle gate put replies here."|t }}</p>
 {% endfor %}
 {% endblock %}

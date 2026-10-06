@@ -419,6 +419,28 @@ async def check_root_path() -> None:
         settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_root_path = old
 
 
+async def check_persian() -> None:
+    import secretary.dashboard.web as web
+    old = (settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_lang)
+    settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_lang = True, "p", "fa"
+    try:
+        app = create_app(BOT, lambda: STOPS.append(1), env_path=ENV)
+        async with client(app, headers={"x-platform-auth": "p"}) as c:
+            for path in ("/", "/settings", "/contacts", "/contacts/5", "/prompts", "/drafts"):
+                r = await c.get(path)
+                assert r.status_code == 200, (path, r.status_code)
+                assert 'dir="rtl"' in r.text and 'lang="fa"' in r.text, path
+                assert "تنظیمات" in r.text, path          # nav: Settings
+                for english in (">Settings<", ">Contacts<", ">Drafts<", ">Save<", ">Status<"):
+                    assert english not in r.text, (path, english)
+            r = await c.post("/settings/config", data={"HISTORY_TURNS": ""})
+            assert "err=" in r.headers["location"] and "%D9" in r.headers["location"]  # Persian flash
+        assert web.t("never-translated-xyz") == "never-translated-xyz"
+    finally:
+        settings.hosted, settings.dashboard_proxy_secret, settings.dashboard_lang = old
+    assert web.t("Settings") == "Settings"  # default en: untouched
+
+
 async def main() -> None:
     await db.init_db()
     try:
@@ -434,6 +456,7 @@ async def main() -> None:
         await check_hosted()
         await check_proxy_ok_empty_secret()
         await check_root_path()
+        await check_persian()
     finally:
         await db.close_db()  # an open aiosqlite thread would hang the process on failure
     print("smoke_dashboard OK")

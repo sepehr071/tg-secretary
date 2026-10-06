@@ -1,40 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Status</h1>
+<h1>{{ "Status"|t }}</h1>
 <section class="card">
-  <p>Bot <strong>@{{ bot_username }}</strong> · up {{ uptime }} · model <code>{{ model }}</code></p>
+  <p>{{ "Bot"|t }} <strong>@{{ bot_username }}</strong> · {{ "up"|t }} {{ uptime }} · {{ "model"|t }} <code>{{ model }}</code></p>
   <p>
-    Auto-reply: {% if paused %}<span class="bad">paused</span>{% else %}<span class="good">on</span>{% endif %}
-    · Approval mode: {{ "on" if approval else "off" }}
-    · Inner-circle gate: {{ "on" if innercircle else "off" }}
-    · <a href="{{ root }}/settings">change</a>
+    {{ "Auto-reply:"|t }} {% if paused %}<span class="bad">{{ "paused"|t }}</span>{% else %}<span class="good">{{ "on"|t }}</span>{% endif %}
+    · {{ "Approval mode:"|t }} {{ ("on" if approval else "off")|t }}
+    · {{ "Inner-circle gate:"|t }} {{ ("on" if innercircle else "off")|t }}
+    · <a href="{{ root }}/settings">{{ "change"|t }}</a>
   </p>
-  <p>OpenRouter credit:
-    {% if credit is none %}unavailable
-    {% elif credit.limit_remaining is none %}no limit (used ${{ "%.2f"|format(credit.usage or 0) }})
-    {% else %}${{ "%.2f"|format(credit.limit_remaining) }} left{% endif %}
+  <p>{{ "OpenRouter credit:"|t }}
+    {% if credit is none %}{{ "unavailable"|t }}
+    {% elif credit.limit_remaining is none %}{{ "no limit, used"|t }} ${{ "%.2f"|format(credit.usage or 0) }}
+    {% else %}${{ "%.2f"|format(credit.limit_remaining) }} {{ "left"|t }}{% endif %}
   </p>
 </section>
 <section class="card">
-  <h2>Business connection</h2>
+  <h2>{{ "Business connection"|t }}</h2>
   {% for c in connections %}
-    <p>{{ "enabled" if c.is_enabled else "disabled" }}
-    {% if c.missing %} · <span class="bad">missing rights: {{ c.missing|join(", ") }}</span>
-      (Telegram → Settings → Business → Chatbots){% endif %}</p>
+    <p>{{ ("enabled" if c.is_enabled else "disabled")|t }}
+    {% if c.missing %} · <span class="bad">{{ "missing rights:"|t }} {{ c.missing|map("t")|join(", ") }}</span>
+      ({{ "Telegram → Settings → Business → Chatbots"|t }}){% endif %}</p>
   {% else %}
-    <p class="bad">Not connected. In Telegram open Settings → Business → Chatbots and add @{{ bot_username }}.</p>
+    <p class="bad">{{ "Not connected. In Telegram open Settings → Business → Chatbots and add"|t }} @{{ bot_username }}.</p>
   {% endfor %}
 </section>
 <section class="card">
-  <h2>Activity</h2>
-  <p>{{ stats.replies_today }} replies today · {{ stats.replies_week }} this week ·
-     {{ stats.total_chats }} chats · <a href="{{ root }}/drafts">{{ stats.pending }} drafts waiting</a></p>
+  <h2>{{ "Activity"|t }}</h2>
+  <p>{{ stats.replies_today }} {{ "replies today"|t }} · {{ stats.replies_week }} {{ "this week"|t }} ·
+     {{ stats.total_chats }} {{ "chats"|t }} · <a href="{{ root }}/drafts">{{ stats.pending }} {{ "drafts waiting"|t }}</a></p>
   <table>
-    <tr><th>When</th><th>Chat</th><th>Reply</th></tr>
+    <tr><th>{{ "When"|t }}</th><th>{{ "Chat"|t }}</th><th>{{ "Reply"|t }}</th></tr>
     {% for r in replies %}
     <tr><td>{{ r.created_at|ts }}</td><td><a href="{{ root }}/contacts/{{ r.chat_id }}">{{ r.chat_id }}</a></td>
         <td dir="auto">{{ r.content[:120] }}</td></tr>
-    {% else %}<tr><td colspan="3">No bot replies yet.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="3">{{ "No bot replies yet."|t }}</td></tr>{% endfor %}
   </table>
 </section>
 {% endblock %}

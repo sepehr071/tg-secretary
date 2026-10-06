@@ -1,51 +1,51 @@
 {% extends "base.html" %}
 {% block content %}
-<p><a href="{{ root }}/contacts">← Contacts</a></p>
+<p><a href="{{ root }}/contacts">← {{ "Contacts"|t }}</a></p>
 <h1 dir="auto">{{ title }} <small>{{ chat_id }}</small></h1>
 
 <form method="post" action="{{ root }}/contacts/{{ chat_id }}/profile" class="card">
-  <h2>Profile</h2>
-  <label>Relationship
+  <h2>{{ "Profile"|t }}</h2>
+  <label>{{ "Relationship"|t }}
     <select name="relationship">
       {% for r in relationships %}<option value="{{ r }}" {{ "selected" if (o.relationship or "unknown") == r }}>{{ r }}</option>{% endfor %}
     </select></label>
-  <label>Nickname <input name="nickname" value="{{ o.nickname or '' }}" dir="auto"></label>
-  <label><input type="checkbox" name="paused" {{ "checked" if o.paused }}> Pause auto-replies in this chat</label>
-  <label>Note (added to the prompt for this chat)
+  <label>{{ "Nickname"|t }} <input name="nickname" value="{{ o.nickname or '' }}" dir="auto"></label>
+  <label><input type="checkbox" name="paused" {{ "checked" if o.paused }}> {{ "Pause auto-replies in this chat"|t }}</label>
+  <label>{{ "Note (added to the prompt for this chat)"|t }}
     <textarea name="persona_extra" rows="4" dir="auto">{{ o.persona_extra or '' }}</textarea></label>
-  <button>Save</button>
+  <button>{{ "Save"|t }}</button>
 </form>
 
 <form method="post" action="{{ root }}/contacts/{{ chat_id }}/prompt" class="card">
-  <h2>Prompt file <small>prompts/contacts/{{ chat_id }}.txt</small></h2>
+  <h2>{{ "Prompt file"|t }} <small>prompts/contacts/{{ chat_id }}.txt</small></h2>
   <textarea name="text" rows="10" dir="auto">{{ prompt_text }}</textarea>
-  <button>Save</button> <small>Empty deletes the file.</small>
+  <button>{{ "Save"|t }}</button> <small>{{ "Empty deletes the file."|t }}</small>
 </form>
 
 <section class="card">
-  <h2>Memory</h2>
+  <h2>{{ "Memory"|t }}</h2>
   <table>
     {% for m in memories %}
     <tr><td>{{ m.kind }}</td><td dir="auto">{{ m.content }}</td><td>{{ m.created_at|ts }}</td>
-      <td><form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory/{{ m.id }}/expire"><button>Remove</button></form></td></tr>
-    {% else %}<tr><td>No memories yet.</td></tr>{% endfor %}
+      <td><form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory/{{ m.id }}/expire"><button>{{ "Remove"|t }}</button></form></td></tr>
+    {% else %}<tr><td>{{ "No memories yet."|t }}</td></tr>{% endfor %}
   </table>
   <form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory" class="row">
     <select name="kind">{% for k in kinds %}<option>{{ k }}</option>{% endfor %}</select>
-    <input name="content" placeholder="new memory" dir="auto" required>
-    <button>Add</button>
+    <input name="content" placeholder="{{ 'new memory'|t }}" dir="auto" required>
+    <button>{{ "Add"|t }}</button>
   </form>
-  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/extract"><button>Extract from recent messages now</button></form>
+  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/extract"><button>{{ "Extract from recent messages now"|t }}</button></form>
 </section>
 
 {% if o.style_fingerprint %}
-<section class="card"><h2>Style fingerprint</h2><pre dir="auto">{{ o.style_fingerprint }}</pre></section>
+<section class="card"><h2>{{ "Style fingerprint"|t }}</h2><pre dir="auto">{{ o.style_fingerprint }}</pre></section>
 {% endif %}
 
 <section class="card">
-  <h2>Last messages</h2>
+  <h2>{{ "Last messages"|t }}</h2>
   {% for m in history %}
-  <p dir="auto"><b>{{ "them" if m.role == "user" else "you" }}:</b> {{ m.content }}</p>
-  {% else %}<p>No messages.</p>{% endfor %}
+  <p dir="auto"><b>{{ ("them" if m.role == "user" else "you")|t }}:</b> {{ m.content }}</p>
+  {% else %}<p>{{ "No messages."|t }}</p>{% endfor %}
 </section>
 {% endblock %}

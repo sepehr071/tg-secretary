@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 
 from .. import commands, db, prompts
 from ..config import settings
-from .web import back, render
+from .web import back, render, t
 
 router = APIRouter()
 
@@ -162,4 +162,4 @@ async def save_prompt(name: str, text: str = Form("")):
     if name not in PROMPT_NAMES:  # whitelist: user input never forms a path
         raise HTTPException(status_code=404)
     write_prompt(_prompt_paths(name)[0], text)
-    return back("/prompts", msg=f"Saved {name}.")
+    return back("/prompts", msg=t("Saved:") + f" {name}")

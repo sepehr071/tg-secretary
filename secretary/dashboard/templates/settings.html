@@ -1,48 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Settings</h1>
+<h1>{{ "Settings"|t }}</h1>
 {% if restart %}
 <form method="post" action="{{ root }}/restart" class="card warn">
-  <p>The token, API key or owner change needs a restart. Under pm2 the bot is back in a few seconds; without pm2 it stays stopped.</p>
-  <button>Restart now</button>
+  <p>{{ "The token, API key or owner change needs a restart. Under pm2 the bot is back in a few seconds; without pm2 it stays stopped."|t }}</p>
+  <button>{{ "Restart now"|t }}</button>
 </form>
 {% endif %}
 
 <form method="post" action="{{ root }}/settings/live" class="card">
-  <h2>Live <small>applies to the next message, same as the /commands</small></h2>
+  <h2>{{ "Live"|t }} <small>{{ "applies to the next message, same as the /commands"|t }}</small></h2>
   {# Values as loaded: the server writes only fields that differ from these. #}
   {% for key, value in live.items() %}<input type="hidden" name="orig_{{ key }}" value="{{ value }}">{% endfor %}
-  <label><input type="checkbox" name="paused" {{ "checked" if live.paused == "on" }}> Pause all auto-replies</label>
-  <label><input type="checkbox" name="approval_mode" {{ "checked" if live.approval_mode == "on" }}> Approval mode: every reply waits for you in Drafts</label>
-  <label><input type="checkbox" name="innercircle_gate" {{ "checked" if live.innercircle_gate == "on" }}> Inner-circle gate: hold emotional, long or after-silence messages from gf, family, bff and close friends</label>
-  <label>Voice transcription
+  <label><input type="checkbox" name="paused" {{ "checked" if live.paused == "on" }}> {{ "Pause all auto-replies"|t }}</label>
+  <label><input type="checkbox" name="approval_mode" {{ "checked" if live.approval_mode == "on" }}> {{ "Approval mode: every reply waits for you in Drafts"|t }}</label>
+  <label><input type="checkbox" name="innercircle_gate" {{ "checked" if live.innercircle_gate == "on" }}> {{ "Inner-circle gate: hold emotional, long or after-silence messages from gf, family, bff and close friends"|t }}</label>
+  <label>{{ "Voice transcription"|t }}
     <select name="voice_override">
-      <option value="" {{ "selected" if live.voice_override == "" }}>Default ({{ "on" if s.voice_transcribe else "off" }})</option>
-      <option value="on" {{ "selected" if live.voice_override == "on" }}>On</option>
-      <option value="off" {{ "selected" if live.voice_override == "off" }}>Off</option>
+      <option value="" {{ "selected" if live.voice_override == "" }}>{{ "Default"|t }} ({{ ("on" if s.voice_transcribe else "off")|t }})</option>
+      <option value="on" {{ "selected" if live.voice_override == "on" }}>{{ "On"|t }}</option>
+      <option value="off" {{ "selected" if live.voice_override == "off" }}>{{ "Off"|t }}</option>
     </select></label>
-  <label>Quiet hours <input type="time" name="quiet_start" value="{{ live.quiet_start }}"> to
-    <input type="time" name="quiet_end" value="{{ live.quiet_end }}"> <small>both empty = none</small></label>
+  <label>{{ "Quiet hours"|t }} <input type="time" name="quiet_start" value="{{ live.quiet_start }}"> {{ "to"|t }}
+    <input type="time" name="quiet_end" value="{{ live.quiet_end }}"> <small>{{ "both empty = none"|t }}</small></label>
   {% for key, label, default in live_ints %}
-  <label>{{ label }} <input type="number" min="0" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default }} (default)"></label>
+  <label>{{ label|t }} <input type="number" min="0" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default }} ({{ 'default'|t }})"></label>
   {% endfor %}
-  <button>Save</button>
+  <button>{{ "Save"|t }}</button>
 </form>
 
 <form method="post" action="{{ root }}/settings/config" class="card">
-  <h2>Config <small>saved to .env (the old one is backed up)</small></h2>
+  <h2>{{ "Config"|t }} <small>{{ "saved to .env (the old one is backed up)"|t }}</small></h2>
   <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
-  <label>Reply model <input name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" required></label>
-  <label>Extractor model <input name="EXTRACTOR_MODEL" value="{{ s.extractor_model }}" list="models" required></label>
-  <label>Voice model <input name="WHISPER_MODEL" value="{{ s.whisper_model }}" required></label>
-  <label>Your first name <input name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required></label>
-  <label>History turns per reply <input type="number" min="1" max="100" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></label>
+  <label>{{ "Reply model"|t }} <input name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" required></label>
+  <label>{{ "Extractor model"|t }} <input name="EXTRACTOR_MODEL" value="{{ s.extractor_model }}" list="models" required></label>
+  <label>{{ "Voice model"|t }} <input name="WHISPER_MODEL" value="{{ s.whisper_model }}" required></label>
+  <label>{{ "Your first name"|t }} <input name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required></label>
+  <label>{{ "History turns per reply"|t }} <input type="number" min="1" max="100" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></label>
   {% if not hosted %}
-  <h3>Needs a restart</h3>
-  <label>Telegram bot token <input type="password" name="TG_BOT_TOKEN" placeholder="{{ s.tg_bot_token|mask }} (blank keeps it)" autocomplete="off"></label>
-  <label>OpenRouter API key <input type="password" name="OPENROUTER_API_KEY" placeholder="{{ s.openrouter_api_key|mask }} (blank keeps it)" autocomplete="off"></label>
-  <label>Owner user id <input name="OWNER_USER_ID" value="{{ s.owner_user_id }}" inputmode="numeric" required></label>
+  <h3>{{ "Needs a restart"|t }}</h3>
+  <label>{{ "Telegram bot token"|t }} <input type="password" name="TG_BOT_TOKEN" placeholder="{{ s.tg_bot_token|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off"></label>
+  <label>{{ "OpenRouter API key"|t }} <input type="password" name="OPENROUTER_API_KEY" placeholder="{{ s.openrouter_api_key|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off"></label>
+  <label>{{ "Owner user id"|t }} <input name="OWNER_USER_ID" value="{{ s.owner_user_id }}" inputmode="numeric" required></label>
   {% endif %}
-  <button>Save</button>
+  <button>{{ "Save"|t }}</button>
 </form>
 {% endblock %}

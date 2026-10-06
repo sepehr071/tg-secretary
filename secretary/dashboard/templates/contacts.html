@@ -1,20 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Contacts</h1>
+<h1>{{ "Contacts"|t }}</h1>
 <form method="get" action="{{ root }}/contacts" class="row">
-  <input name="q" value="{{ q }}" placeholder="name, @username or chat id" dir="auto">
-  <button>Search</button>
+  <input name="q" value="{{ q }}" placeholder="{{ 'name, @username or chat id'|t }}" dir="auto">
+  <button>{{ "Search"|t }}</button>
 </form>
 <table>
-  <tr><th>Name</th><th>Relationship</th><th>Last message</th><th>Messages</th><th></th></tr>
+  <tr><th>{{ "Name"|t }}</th><th>{{ "Relationship"|t }}</th><th>{{ "Last message"|t }}</th><th>{{ "Messages"|t }}</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td dir="auto"><a href="{{ root }}/contacts/{{ r.chat_id }}">{{ r.name }}</a>{% if r.tg_username %} <small>@{{ r.tg_username }}</small>{% endif %}</td>
-    <td>{{ r.relationship or "untagged" }}</td>
+    <td>{{ (r.relationship or "untagged")|t }}</td>
     <td>{{ r.last_seen|ts }}</td>
     <td>{{ r.msg_count }}</td>
-    <td>{{ "paused" if r.paused }}</td>
+    <td>{{ "paused"|t if r.paused }}</td>
   </tr>
-  {% else %}<tr><td colspan="5">No chats yet.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="5">{{ "No chats yet."|t }}</td></tr>{% endfor %}
 </table>
 {% endblock %}
