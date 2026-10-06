@@ -1,0 +1,296 @@
+"""Hosting website: Telegram login, onboarding, account, admin, and the /app/ proxy."""
+from __future__ import annotations
+
+import asyncio
+import logging
+import secrets
+import unicodedata
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode
+
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from . import db, oidc, openrouter, pm2, tenants, tg
+from .config import settings
+
+log = logging.getLogger(__name__)
+_HERE = Path(__file__).resolve().parent
+COOKIE = "hs_session"
+templates = Jinja2Templates(directory=str(_HERE / "templates"))
+PUBLIC_PATHS = {"/", "/login", oidc.REDIRECT_PATH}
+MAX_AMOUNT = 1000.0
+
+
+def parse_amount(raw: str) -> float | None:
+    """USD amount from an admin form; accepts Persian digits and the ٫ separator."""
+    text = unicodedata.normalize("NFKC", raw.strip()).replace("٫", ".")
+    try:
+        value = float("".join(str(unicodedata.digit(ch)) if ch.isdigit() else ch for ch in text))
+    except ValueError:
+        return None
+    return value if 0 < value <= MAX_AMOUNT else None
+
+
+async def next_step(tg_id: int) -> str:
+    if not await db.has_consent(tg_id, settings.consent_version):
+        return "consent"
+    t = await db.get_tenant_by_owner(tg_id)
+    if t is None or not t["bot_id"]:
+        return "bot"
+    if not t["profile_done"]:
+        return "profile"
+    if t["status"] in ("draft", "awaiting_credit"):
+        return "payment"
+    return "account"
+
+
+STEP_URL = {"consent": "/onboard/consent", "bot": "/onboard/bot", "profile": "/onboard/profile"}
+
+
+def render(request: Request, name: str, status_code: int = 200, **ctx: Any):
+    ctx.setdefault("user", getattr(request.state, "user", None))
+    ctx.setdefault("msg", request.query_params.get("msg", ""))
+    ctx.setdefault("err", request.query_params.get("err", ""))
+    return templates.TemplateResponse(request, name, ctx, status_code=status_code)
+
+
+def go(url: str, **q: str) -> RedirectResponse:
+    query = urlencode({k: v for k, v in q.items() if v})
+    return RedirectResponse(f"{url}?{query}" if query else url, status_code=303)
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.mount("/hstatic", StaticFiles(directory=str(_HERE / "static")), name="hstatic")
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        if request.method == "POST" and request.headers.get("origin") != settings.public_url:
+            return PlainTextResponse("bad origin", status_code=403)
+        tg_id = await db.session_user(request.cookies.get(COOKIE))
+        request.state.user = await db.get_user(tg_id) if tg_id else None
+        path = request.url.path
+        if request.state.user is None and path not in PUBLIC_PATHS and not path.startswith("/hstatic/"):
+            if request.method == "GET":
+                return RedirectResponse("/login", status_code=303)
+            return PlainTextResponse("login required", status_code=401)
+        if path.startswith("/admin") and request.state.user["tg_id"] != settings.admin_tg_id:
+            return PlainTextResponse("forbidden", status_code=403)
+        return await call_next(request)
+
+    @app.get("/")
+    async def index(request: Request):
+        return render(request, "index.html")
+
+    @app.get("/login")
+    async def login():
+        verifier, challenge = oidc.new_pkce()
+        state = secrets.token_urlsafe(24)
+        await db.put_oauth_state(state, verifier)
+        return RedirectResponse(oidc.auth_url(state, challenge), status_code=303)
+
+    @app.get(oidc.REDIRECT_PATH)
+    async def callback(request: Request, code: str = "", state: str = ""):
+        verifier = await db.pop_oauth_state(state) if state else None
+        if not verifier or not code:
+            return render(request, "error.html", 400, title="ورود ناموفق",
+                          body="لینک ورود منقضی شده؛ دوباره وارد شوید.")
+        try:
+            claims = await oidc.exchange(code, verifier)
+        except Exception:  # noqa: BLE001 - any failure here is "login failed" to the user
+            log.exception("oidc exchange failed")
+            return render(request, "error.html", 400, title="ورود ناموفق",
+                          body="دوباره تلاش کنید.")
+        tg_id = int(claims["id"])
+        await db.upsert_user(tg_id, claims.get("name") or claims.get("given_name") or "",
+                             claims.get("preferred_username"))
+        resp = RedirectResponse("/account", status_code=303)
+        resp.set_cookie(COOKIE, await db.create_session(tg_id), max_age=db.SESSION_TTL,
+                        httponly=True, secure=True, samesite="lax", path="/")
+        return resp
+
+    @app.post("/logout")
+    async def logout(request: Request):
+        await db.end_session(request.cookies.get(COOKIE))
+        resp = RedirectResponse("/", status_code=303)
+        resp.delete_cookie(COOKIE, path="/")
+        return resp
+
+    def uid(request: Request) -> int:
+        return request.state.user["tg_id"]
+
+    @app.get("/account")
+    async def account(request: Request):
+        step = await next_step(uid(request))
+        if step in STEP_URL:
+            return RedirectResponse(STEP_URL[step], status_code=303)
+        t = await db.get_tenant_by_owner(uid(request))
+        credit = None
+        if t["or_key_hash"]:
+            try:
+                credit = await openrouter.get_key(t["or_key_hash"])
+            except openrouter.OpenRouterError:
+                log.warning("credit lookup failed for tenant %s", t["id"])
+        return render(request, "account.html", tenant=t, credit=credit,
+                      payment_instructions=settings.payment_instructions,
+                      connected=await tenants.is_connected(t["id"]))
+
+    @app.get("/account/connected")
+    async def account_connected(request: Request):
+        t = await db.get_tenant_by_owner(uid(request))
+        return JSONResponse({"connected": bool(t) and await tenants.is_connected(t["id"])})
+
+    @app.get("/onboard/consent")
+    async def consent_page(request: Request):
+        return render(request, "consent.html", version=settings.consent_version)
+
+    @app.post("/onboard/consent")
+    async def consent(request: Request, accept: str = Form("")):
+        if accept != "1":
+            return go("/onboard/consent", err="برای ادامه باید شرایط را بپذیرید.")
+        await db.add_consent(uid(request), settings.consent_version)
+        return RedirectResponse("/account", status_code=303)
+
+    async def _tenant_for(request: Request) -> dict:
+        t = await db.get_tenant_by_owner(uid(request))
+        if t is None:
+            t = await db.get_tenant(await db.create_tenant(uid(request)))
+        return t
+
+    def _managed_link(request: Request) -> str:
+        suggested = f"{(request.state.user.get('username') or 'my')}_secretary_bot"[:32]
+        return f"https://t.me/newbot/{settings.platform_bot_username}/{suggested}?name=Secretary"
+
+    async def _can_business(t: dict) -> bool:
+        from dotenv import dotenv_values
+        token = dotenv_values(tenants.tenant_dir(t["id"]) / ".env").get("TG_BOT_TOKEN")
+        if not token:
+            return False
+        try:
+            return bool((await tg.call(token, "getMe")).get("can_connect_to_business"))
+        except tg.TelegramError:
+            return False
+
+    @app.get("/onboard/bot")
+    async def bot_page(request: Request):
+        if await next_step(uid(request)) == "consent":
+            return RedirectResponse("/onboard/consent", status_code=303)
+        t = await db.get_tenant_by_owner(uid(request))
+        return render(request, "onboard_bot.html", managed_link=_managed_link(request),
+                      bot_username=(t or {}).get("bot_username") or "",
+                      needs_secretary=bool(t and t["bot_id"]) and not await _can_business(t))
+
+    @app.post("/onboard/bot/token")
+    async def bot_token(request: Request, token: str = Form("")):
+        if await next_step(uid(request)) == "consent":
+            return RedirectResponse("/onboard/consent", status_code=303)
+        token = token.strip()
+        if ":" not in token:
+            return go("/onboard/bot", err="توکن درست نیست.")
+        try:
+            await tenants.attach_bot(await _tenant_for(request), token, managed=False)
+        except db.BotTaken:
+            return go("/onboard/bot", err="این ربات قبلاً به حساب دیگری وصل شده.")
+        except tg.TelegramError:
+            return go("/onboard/bot", err="تلگرام این توکن را نپذیرفت.")
+        return RedirectResponse("/account", status_code=303)
+
+    @app.get("/onboard/bot/status")
+    async def bot_status(request: Request):
+        t = await db.get_tenant_by_owner(uid(request))
+        attached = bool(t and t["bot_id"])
+        return JSONResponse({"attached": attached, "username": (t or {}).get("bot_username") or "",
+                             "needs_secretary": attached and not await _can_business(t)})
+
+    @app.get("/onboard/profile")
+    async def profile_page(request: Request):
+        return render(request, "onboard_profile.html", first_name=request.state.user["first_name"] or "")
+
+    @app.post("/onboard/profile")
+    async def profile(request: Request, first_name: str = Form(""), about: str = Form(""),
+                      style: str = Form(""), never: str = Form("")):
+        t = await db.get_tenant_by_owner(uid(request))
+        if t is None or not t["bot_id"]:
+            return RedirectResponse("/account", status_code=303)
+        await tenants.save_profile(t["id"], first_name, about, style, never)
+        if t["status"] == "draft":
+            await db.update_tenant(t["id"], status="awaiting_credit")
+        try:
+            if settings.trial_credit_usd > 0 and not t["or_key_hash"]:
+                await tenants.add_credit(t["id"], settings.trial_credit_usd)
+            t = await db.get_tenant(t["id"])
+            if t["or_key_hash"]:  # credit exists (trial, or the admin paid before the profile was done)
+                await tenants.activate(t["id"])
+        except Exception as e:  # noqa: BLE001 - admin sees last_error and retries
+            log.exception("activation failed")
+            await db.update_tenant(t["id"], last_error=f"activate: {e}")
+        return RedirectResponse("/account", status_code=303)
+
+    @app.post("/account/delete")
+    async def delete(request: Request, confirm: str = Form("")):
+        if confirm.strip() != "حذف":
+            return go("/account", err="برای حذف، کلمه\u200cی «حذف» را بنویسید.")
+        t = await db.get_tenant_by_owner(uid(request))
+        if t:
+            await tenants.delete(t["id"])
+        return go("/", msg="حساب و داده\u200cها پاک شد.")
+
+    @app.get("/admin")
+    async def admin(request: Request):
+        procs = await asyncio.to_thread(pm2.status)
+        rows = []
+        for t in await db.list_tenants():
+            user = await db.get_user(t["owner_tg_id"]) or {}
+            info: dict = {}
+            if t["or_key_hash"]:
+                try:
+                    info = await openrouter.get_key(t["or_key_hash"])
+                except openrouter.OpenRouterError:
+                    pass
+            p = procs.get(pm2.name(t["id"]), {})
+            rows.append({**t, "first_name": user.get("first_name"), "limit": info.get("limit"),
+                         "usage": info.get("usage"), "pm2_status": p.get("status", "—"),
+                         "restarts": p.get("restarts", 0), "client_ref": secrets.token_urlsafe(12)})
+        return render(request, "admin.html", rows=rows)
+
+    @app.post("/admin/payment")
+    async def admin_payment(request: Request, tenant_id: int = Form(...), amount_usd: str = Form(""),
+                            paid_text: str = Form(""), note: str = Form(""), client_ref: str = Form("")):
+        amount = parse_amount(amount_usd)
+        if amount is None or not client_ref:
+            return go("/admin", err="مبلغ درست نیست.")
+        try:
+            added = await tenants.top_up(tenant_id, amount, paid_text, note, uid(request), client_ref)
+        except ValueError:
+            return go("/admin", err="این حساب هنوز آماده نیست (ربات ندارد).")
+        except Exception as e:  # noqa: BLE001 - show the failure, payment row is kept for retry
+            log.exception("top-up failed")
+            await db.update_tenant(tenant_id, last_error=f"top-up: {e}")
+            return go("/admin", err=f"خطا: {e}")
+        return go("/admin", msg="ثبت شد." if added else "این پرداخت قبلاً ثبت شده بود.")
+
+    @app.post("/admin/tenant/{tid}/restart")
+    async def admin_restart(tid: int):
+        t = await db.get_tenant(tid)
+        if t is None or t["status"] not in ("running", "stopped"):
+            return go("/admin", err="این حساب هنوز فعال نشده.")
+        try:
+            await asyncio.to_thread(pm2.restart, tid)  # pm2 restart also revives a stopped process
+        except pm2.Pm2Error:
+            await tenants.activate(tid)  # process missing from pm2: start it (reuses key, port, secret)
+        await db.update_tenant(tid, status="running")
+        return go("/admin", msg="انجام شد.")
+
+    @app.post("/admin/tenant/{tid}/stop")
+    async def admin_stop(tid: int):
+        await asyncio.to_thread(pm2.stop, tid)
+        await db.update_tenant(tid, status="stopped")
+        return go("/admin", msg="متوقف شد.")
+
+    from .proxy import router as proxy_router  # Task 10
+    app.include_router(proxy_router)
+    return app

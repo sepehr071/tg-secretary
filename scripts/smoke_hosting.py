@@ -311,6 +311,116 @@ async def check_provisioning() -> None:
     assert await db.get_tenant_by_owner(20) is None
 
 
+from hosting import app as happ  # noqa: E402
+
+BASE = "https://host.test"
+
+
+def web(app, cookie: str | None = None) -> httpx.AsyncClient:
+    headers = {"origin": BASE}
+    if cookie:
+        headers["cookie"] = f"{happ.COOKIE}={cookie}"
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE, headers=headers)
+
+
+@check
+async def check_routes() -> None:
+    pm2.RUN = fake_run
+    app = happ.create_app()
+    async with web(app) as c:
+        assert (await c.get("/")).status_code == 200
+        r = await c.get("/account")
+        assert r.status_code == 303 and r.headers["location"] == "/login"
+        r = await c.get("/login")
+        assert r.headers["location"].startswith("https://oauth.telegram.org/auth?")
+        state = r.headers["location"].split("state=")[1].split("&")[0]
+
+    # Callback with a stubbed token endpoint.
+    claims = {"iss": "https://oauth.telegram.org", "aud": "cid", "exp": 4e9, "id": 30, "name": "Mina",
+              "preferred_username": "mina"}
+    oidc.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={"id_token": _jwt(claims)}))
+    async with web(app) as c:
+        r = await c.get(f"/auth/callback?code=abc&state={state}")
+        assert r.status_code == 303 and r.headers["location"] == "/account"
+        cookie = r.cookies[happ.COOKIE]
+        r = await c.get(f"/auth/callback?code=abc&state={state}")      # state is one-time
+        assert r.status_code == 400
+    oidc.TRANSPORT = None
+
+    async with web(app, cookie) as c:
+        # Resume logic.
+        assert await happ.next_step(30) == "consent"
+        assert (await c.get("/account")).headers["location"] == "/onboard/consent"
+        assert (await c.post("/onboard/bot/token", data={"token": "1:x"})).status_code == 303
+        assert await db.get_tenant_by_owner(30) is None                # no tenant without consent
+        await c.post("/onboard/consent", data={"accept": "1"})
+        assert await happ.next_step(30) == "bot"
+
+        tg.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={
+            "ok": True, "result": {"id": 901, "username": "mina_bot", "can_connect_to_business": False}}))
+        r = await c.post("/onboard/bot/token", data={"token": "901:abc"})
+        assert r.status_code == 303
+        st = (await c.get("/onboard/bot/status")).json()
+        assert st == {"attached": True, "username": "mina_bot", "needs_secretary": True}
+        assert await happ.next_step(30) == "profile"
+
+        await c.post("/onboard/profile", data={"first_name": "Mina", "about": "x", "style": "", "never": ""})
+        assert await happ.next_step(30) == "payment"                   # trial credit is 0
+        assert (await db.get_tenant_by_owner(30))["status"] == "awaiting_credit"
+
+        # Non-admin cannot reach admin.
+        assert (await c.get("/admin")).status_code == 403
+        # Cross-site POST refused.
+        r = await c.post("/onboard/consent", data={"accept": "1"}, headers={"origin": "https://evil.test"})
+        assert r.status_code == 403
+
+
+@check
+async def check_pay_before_profile() -> None:
+    """Admin pays while the profile is unfinished: nothing starts until the profile is submitted."""
+    pm2.RUN = fake_run
+    or_state = {"limit": 0.0}
+
+    def or_handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content or b"{}")
+        if req.method == "POST":
+            return httpx.Response(200, json={"key": "sk-or-v1-z", "data": {"hash": "hz"}})
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": {"limit": or_state["limit"], "usage": 0}})
+        or_state["limit"] = body.get("limit", or_state["limit"])
+        return httpx.Response(200, json={"data": {}})
+
+    openrouter.TRANSPORT = httpx.MockTransport(or_handler)
+    app = happ.create_app()
+    await db.upsert_user(1, "Admin", "admin")
+    await db.upsert_user(31, "Zoya", "zoya")
+    await db.add_consent(31, settings.consent_version)
+    tid = await db.create_tenant(31)
+    await db.set_tenant_bot(tid, 931, "zoya_bot", managed=False)
+    async with web(app, await db.create_session(1)) as c:
+        r = await c.post("/admin/payment", data={"tenant_id": tid, "amount_usd": "۵", "client_ref": "z-1"})
+        assert r.status_code == 303 and "msg=" in r.headers["location"], r.headers["location"]
+        r = await c.post("/admin/payment", data={"tenant_id": 99999, "amount_usd": "5", "client_ref": "z-2"})
+        assert "err=" in r.headers["location"]                          # unknown tenant: flash, not 500
+        assert (await c.get("/admin")).status_code == 200
+    t = await db.get_tenant(tid)
+    assert t["or_key_hash"] == "hz" and t["status"] != "running" and or_state["limit"] == 5.0
+    async with web(app, await db.create_session(31)) as c:
+        await c.post("/onboard/profile", data={"first_name": "Zoya", "about": "x", "style": "", "never": ""})
+    assert (await db.get_tenant(tid))["status"] == "running"
+    openrouter.TRANSPORT = None
+
+
+@check
+async def check_amounts() -> None:
+    assert happ.parse_amount("5") == 5.0
+    assert happ.parse_amount("۵") == 5.0
+    assert happ.parse_amount("۱۲.۵") == 12.5
+    assert happ.parse_amount("۱۲٫۵") == 12.5          # Persian decimal separator
+    for bad in ("", "abc", "-3", "0", "1e9"):
+        assert happ.parse_amount(bad) is None, bad
+
+
 async def main() -> None:
     await db.init(settings.db_path)
     try:
