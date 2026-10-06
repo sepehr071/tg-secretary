@@ -570,6 +570,52 @@ async def check_proxy() -> None:
         assert (await c.get("/app/")).status_code == 303
 
 
+from hosting import bot as pbot  # noqa: E402
+
+
+@check
+async def check_platform_bot() -> None:
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        method = req.url.path.rsplit("/", 1)[1]
+        body = json.loads(req.content or b"{}")
+        calls.append((method, body))
+        if method == "getManagedBotToken":
+            return httpx.Response(200, json={"ok": True, "result": "950:managed"})
+        if method == "getMe":
+            return httpx.Response(200, json={"ok": True, "result": {"id": 950, "username": "n_bot",
+                                                                   "can_connect_to_business": True}})
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    tg.TRANSPORT = httpx.MockTransport(handler)
+    await db.upsert_user(50, "N", None)
+    await db.add_consent(50, settings.consent_version)
+    tid = await db.create_tenant(50)
+    await pbot.handle_update({"update_id": 1, "managed_bot": {
+        "user": {"id": 50}, "bot": {"id": 950, "username": "n_bot"}}})
+    t = await db.get_tenant(tid)
+    assert t["bot_id"] == 950 and t["managed"] == 1
+    assert ("setManagedBotAccessSettings", {"user_id": 950, "is_access_restricted": True}) in calls
+    assert "950:managed" in (tenants.tenant_dir(tid) / ".env").read_text(encoding="utf-8")
+
+    # Managed update from a stranger with no tenant: ignored, no token fetched.
+    n = len(calls)
+    await pbot.handle_update({"update_id": 2, "managed_bot": {"user": {"id": 99999}, "bot": {"id": 1}}})
+    assert all(m != "getManagedBotToken" for m, _ in calls[n:])
+
+    # Credit warning fires once below 20 %.
+    await db.update_tenant(tid, status="running", or_key_hash="hw")
+    openrouter.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(
+        200, json={"data": {"limit": 10, "usage": 9, "limit_remaining": 1}}))
+    calls.clear()
+    await pbot.check_credit_once()
+    await pbot.check_credit_once()
+    assert [b.get("chat_id") for m, b in calls if m == "sendMessage"].count(50) == 1  # other fixtures may warn too
+    openrouter.TRANSPORT = None
+    tg.TRANSPORT = None
+
+
 async def main() -> None:
     await db.init(settings.db_path)
     try:
