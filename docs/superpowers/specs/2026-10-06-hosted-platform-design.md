@@ -162,3 +162,41 @@ Contract first (DB schema, tenant `.env` keys, proxy header, pm2 wrapper interfa
 3. Bot changes: `secretary/` `HOSTED` mode, root path, Persian dashboard strings, 402 handling.
 
 Then Caddy config, staging deploy, and the manual end-to-end check.
+
+## Revision 2 (2026-10-06): one shared secretary bot
+
+Staging showed that a managed bot is created with Secretary Mode off (`can_connect_to_business=false`), and research found no Bot API or MTProto method that turns it on. Non-technical users cannot be asked to find a BotFather toggle. Revision 2 removes per-user bots.
+
+### Decision
+- The platform bot (`@monshi_platform_bot`) is also the only secretary bot. Secretary Mode and Bot Management Mode are enabled on it once, by the operator.
+- A user connects it in Telegram **Settings > Chat Automation**. Nothing else on the Telegram side.
+- Onboarding becomes: login → consent → profile → payment → connect. The bot step (managed-bot link and token paste) is removed.
+
+### Update routing
+- Exactly one process polls the shared bot: the hosting process (`hosting/bot.py`). `allowed_updates` = `message`, `callback_query`, `business_connection`, `business_message`, `edited_business_message`, `deleted_business_messages`.
+- Route key per update type:
+  - `business_connection`: `user.id` → tenant with that `owner_tg_id`. Store `connection_id → tenant_id` in a new `connections` table in `hosting.db`.
+  - `business_message`, `edited_business_message`, `deleted_business_messages`: `business_connection_id` → tenant via that table. On a miss, call `getBusinessConnection`, then route by its `user.id` and store it.
+  - `message` and `callback_query`: `from.id` → tenant, but only when that user has a tenant in status `running`. Otherwise `message` goes to the platform's own handler (`/start` reply with the site link).
+- An update whose user has no `running` tenant is dropped and never forwarded. Anyone can attach a business bot to their account; an account that is not a running tenant must never reach any LLM. On the first `business_connection` from such an account, the platform bot DMs them the site link once.
+- Forwarding: `POST http://127.0.0.1:<dashboard_port>/_tg/update` with header `X-Platform-Auth: <proxy secret>` and the raw update JSON as body. Timeout 10 s. If the tenant is down or answers non-2xx, the update is dropped and logged (tenant id and update type only). No retry queue in v1.
+
+### Tenant process in hosted mode
+- `TG_BOT_TOKEN` is the shared bot token (used only to send). The tenant never polls: in hosted mode `secretary/__main__.py` builds the Application without an updater and does not call `start_polling`.
+- The tenant dashboard app gets `POST /_tg/update` (hosted mode only, same `X-Platform-Auth` guard). It turns the body into `telegram.Update` and puts it on `application.update_queue`, so the existing handlers run unchanged.
+- Owner commands keep working: the owner DMs the shared bot, and the platform routes the DM to their tenant by `from.id`. The existing `_is_owner` guard stays.
+
+### What goes away
+- Managed bots: the `managed_bot` handling, `getManagedBotToken`, `setManagedBotAccessSettings`, `replaceManagedBotToken`, and the `/onboard/bot` pages and token paste.
+- `tenants.attach_bot` and the `tenants.bot_id`/`bot_username`/`managed` columns stop being used. Leave the columns in place (no migration); `top_up` checks `profile_done` instead of `bot_id`.
+- Delete account: no token rotation. The account page tells the user to remove the bot under Chat Automation. After delete, routing drops that user's updates.
+
+### Accepted trade-offs (beta)
+- One shared token: rate limits (~30 msg/s per bot) are shared. Fine for under 50 users.
+- The hosting process is a single point of failure for update intake. pm2 restarts it. Updates sent while it is down are delivered by Telegram after restart (getUpdates keeps them about 24 h); updates sent while a tenant is down are dropped.
+- The bot shows the same name for every user in their Chat Automation list. Replies still appear as sent by the user.
+
+### Testing (revision 2)
+- `smoke_hosting.py`: routing for every update type, unknown-account drop (no forward), `getBusinessConnection` fallback on cache miss, forward call carries `X-Platform-Auth` and the JSON body, non-running tenant gets nothing.
+- `smoke_dashboard.py`: `POST /_tg/update` refused without the header, and with it the update reaches the update queue.
+- Staging: connect the shared bot from a test account, message it, get a reply; owner `/pause` from DM works.
