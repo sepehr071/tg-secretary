@@ -25,7 +25,10 @@ ALLOWED_UPDATES = ["message", "callback_query", "business_connection", "business
 
 
 async def handle_update(u: dict) -> None:
-    if await router.dispatch(u) != "platform":
+    result = await router.dispatch(u)
+    kind = next((k for k in u if k != "update_id"), "?")
+    log.info("update %s %s -> %s", u.get("update_id"), kind, result)  # ids and type only, never contents
+    if result != "platform":
         return
     msg = u.get("message") or {}
     if (msg.get("text") or "").startswith("/start"):
