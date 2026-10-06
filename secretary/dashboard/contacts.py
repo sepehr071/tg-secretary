@@ -1,6 +1,7 @@
 """Contacts (tags, notes, prompt files, memory) and the Prompts editor."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,16 @@ from .web import back, render, t
 
 router = APIRouter()
 
-MEMORY_KINDS = ("fact", "preference", "event", "promise", "inside_joke", "open_thread")
+# Human labels (English keys, translated by |t). Order = order shown in selects.
+RELATIONSHIPS = {
+    "gf": "Partner", "family": "Family", "bff": "Best friend", "close_friend": "Close friend",
+    "friend": "Friend", "work": "Work", "acquaintance": "Acquaintance", "unknown": "Not set",
+}
+assert set(RELATIONSHIPS) == commands.VALID_RELATIONSHIPS
+MEMORY_KINDS = {
+    "fact": "Fact", "preference": "Likes and dislikes", "event": "Event", "promise": "Promise",
+    "inside_joke": "Inside joke", "open_thread": "Unfinished topic",
+}
 NO_CONNECTION = "No active business connection yet. Connect the bot in Telegram first."
 
 
@@ -47,13 +57,15 @@ def _contact_file(chat_id: int) -> Path:
 @router.get("/contacts")
 async def contacts(request: Request, q: str = ""):
     rows = await db.list_chats()
+    total = len(rows)
     for r in rows:
         r["name"] = display_name(r)
+        r["rel_label"] = RELATIONSHIPS.get(r.get("relationship") or "unknown", "Not set")
     needle = q.strip().lower()
     if needle:
         rows = [r for r in rows
                 if needle in f"{r['chat_id']} {r['name']} {r.get('tg_username') or ''}".lower()]
-    return render(request, "contacts.html", rows=rows, q=q)
+    return render(request, "contacts.html", rows=rows, q=q, total=total)
 
 
 @router.get("/contacts/{chat_id}")
@@ -67,10 +79,11 @@ async def contact(request: Request, chat_id: int):
         chat_id=chat_id,
         title=display_name({**override, "chat_id": chat_id}),
         o=override,
-        relationships=sorted(commands.VALID_RELATIONSHIPS),
+        relationships=RELATIONSHIPS,
         prompt_text=read_text(_contact_file(chat_id)) or "",
         memories=await db.list_memory(conn_id=conn_id, chat_id=chat_id),
         kinds=MEMORY_KINDS,
+        style=_style_rows(override.get("style_fingerprint")),
         history=await db.load_history(conn_id=conn_id, chat_id=chat_id, limit=20),
     )
 
@@ -102,7 +115,7 @@ async def save_profile(
 @router.post("/contacts/{chat_id}/prompt")
 async def save_contact_prompt(chat_id: int, text: str = Form("")):
     write_prompt(_contact_file(chat_id), text)
-    return back(f"/contacts/{chat_id}", msg="Prompt file saved.")
+    return back(f"/contacts/{chat_id}", msg="Instructions saved.")
 
 
 @router.post("/contacts/{chat_id}/memory")
@@ -129,10 +142,31 @@ async def extract(chat_id: int):
         return back("/contacts", err=NO_CONNECTION)
     await db.enqueue(conn_id=conn_id, chat_id=chat_id)
     return back(f"/contacts/{chat_id}",
-                msg="Extraction queued. The memory worker runs it within ~15s (it skips chats with few new messages).")
+                msg="Reading the recent messages now. New facts show up here in about a minute (nothing changes if there's little new).")
 
 
-PROMPT_NAMES = ("about_me", *sorted(commands.VALID_RELATIONSHIPS))
+PROMPT_NAMES = ("about_me", *RELATIONSHIPS)
+LANGUAGES = {"en": "English", "fa": "Persian"}
+
+
+def _style_rows(raw: str | None) -> list[tuple[str, Any]]:
+    """The style fingerprint JSON as (label, value) rows; values stay raw for |t in the template."""
+    try:
+        fp = json.loads(raw or "")
+    except ValueError:
+        return []
+    if not isinstance(fp, dict):
+        return []
+    rows = [
+        ("Usual message length", fp.get("avg_length") or ""),
+        ("Tone", fp.get("formality") or ""),
+        ("Emoji", fp.get("emoji_freq") or ""),
+        ("Languages", [LANGUAGES.get(x, x) for x in fp.get("languages") or []]),
+        ("Pet names", fp.get("pet_names") or []),
+        ("Usual opening", fp.get("signature_open") or ""),
+        ("Usual closing", fp.get("signature_close") or ""),
+    ]
+    return [(label, v) for label, v in rows if v]
 
 
 def _prompt_paths(name: str) -> tuple[Path, Path]:
@@ -146,14 +180,15 @@ async def prompts_page(request: Request):
     items = []
     for name in PROMPT_NAMES:
         real, example = _prompt_paths(name)
-        text, source = read_text(real), "your file"
+        text, source = read_text(real), "Your own text"
         # The loader falls back to persona examples but never to about_me.example.txt,
         # so pre-filling that template would let one Save inject it into every prompt.
         if text is None and name != "about_me":
-            text, source = read_text(example), "example — saving creates your own file"
+            text, source = read_text(example), "Ready-made sample. Saving makes it yours."
         if text is None and name in prompts.PERSONAS:
-            text, source = prompts.PERSONAS[name], "built-in default — saving creates your own file"
-        items.append({"name": name, "text": text or "", "source": source if text else "empty"})
+            text, source = prompts.PERSONAS[name], "Built-in default. Saving makes it yours."
+        items.append({"name": name, "label": RELATIONSHIPS.get(name, "About me"),
+                      "text": text or "", "source": source if text else "Empty"})
     return render(request, "prompts.html", items=items)
 
 
@@ -162,4 +197,4 @@ async def save_prompt(name: str, text: str = Form("")):
     if name not in PROMPT_NAMES:  # whitelist: user input never forms a path
         raise HTTPException(status_code=404)
     write_prompt(_prompt_paths(name)[0], text)
-    return back("/prompts", msg=t("Saved:") + f" {name}")
+    return back("/prompts", msg=t("Saved:") + " " + t(RELATIONSHIPS.get(name, "About me")))

@@ -1,20 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ "Contacts"|t }}</h1>
-<form method="get" action="{{ root }}/contacts" class="row">
-  <input name="q" value="{{ q }}" placeholder="{{ 'name, @username or chat id'|t }}" dir="auto">
+<p class="lead">{{ "Everyone who has messaged you. Open a person to tell the secretary who they are and how to talk to them."|t }}</p>
+{% if total %}
+<form method="get" action="{{ root }}/contacts" class="row search" role="search">
+  <label class="sr-only" for="q">{{ "Search contacts"|t }}</label>
+  <input id="q" name="q" type="search" value="{{ q }}" placeholder="{{ 'Search by name or @username'|t }}" dir="auto">
   <button>{{ "Search"|t }}</button>
+  {% if q %}<a href="{{ root }}/contacts">{{ "Show everyone"|t }}</a>{% endif %}
 </form>
-<table>
-  <tr><th>{{ "Name"|t }}</th><th>{{ "Relationship"|t }}</th><th>{{ "Last message"|t }}</th><th>{{ "Messages"|t }}</th><th></th></tr>
+{% endif %}
+{% if rows %}
+<ul class="people">
   {% for r in rows %}
-  <tr>
-    <td dir="auto"><a href="{{ root }}/contacts/{{ r.chat_id }}">{{ r.name }}</a>{% if r.tg_username %} <small>@{{ r.tg_username }}</small>{% endif %}</td>
-    <td>{{ (r.relationship or "untagged")|t }}</td>
-    <td>{{ r.last_seen|ts }}</td>
-    <td>{{ r.msg_count }}</td>
-    <td>{{ "paused"|t if r.paused }}</td>
-  </tr>
-  {% else %}<tr><td colspan="5">{{ "No chats yet."|t }}</td></tr>{% endfor %}
-</table>
+  <li>
+    <a href="{{ root }}/contacts/{{ r.chat_id }}">
+      <span class="who">
+        <b dir="auto">{{ r.name }}</b>
+        {% if r.tg_username and r.name != "@" ~ r.tg_username %}<small dir="ltr">@{{ r.tg_username }}</small>{% endif %}
+      </span>
+      <span class="tags">
+        <span class="tag{{ ' muted' if not r.relationship or r.relationship == 'unknown' }}">{{ r.rel_label|t }}</span>
+        {% if r.paused %}<span class="tag paused">{{ "Auto-reply off"|t }}</span>{% endif %}
+      </span>
+      <small class="meta"><span>{{ "Last message"|t }}: {{ r.last_seen|ts }}</span> <span>{{ r.msg_count|num }} {{ "messages"|t }}</span></small>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% elif q %}
+<p class="empty">{{ "No one matches your search."|t }} <a href="{{ root }}/contacts">{{ "Show everyone"|t }}</a></p>
+{% else %}
+<div class="empty">
+  <p><b>{{ "No one has messaged you yet."|t }}</b></p>
+  <p>{{ "When someone writes to you on Telegram, they show up here and you can set how the secretary talks to them."|t }}</p>
+</div>
+{% endif %}
 {% endblock %}

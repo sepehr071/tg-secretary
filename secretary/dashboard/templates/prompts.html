@@ -1,13 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ "Prompts"|t }}</h1>
-<p>{{ "About me goes into every reply. Each persona applies to contacts tagged with that relationship. Write"|t }} <code>{owner_first_name}</code> {{ "where your name goes."|t }}</p>
+<div class="lead">
+  <p>{{ "Here you tell the secretary how to talk. Write in plain words, the way you'd explain it to a friend who answers for you."|t }}</p>
+  <p>{{ "\"About me\" is used in every reply. Each of the other boxes is for one group of people: whoever you mark as that relationship on their contact page gets that style."|t }}</p>
+  <p>{{ "Wherever you write"|t }} <code dir="ltr">{owner_first_name}</code>{{ ", your first name goes in its place."|t }}</p>
+</div>
 {% for p in items %}
-<details class="card" {{ "open" if loop.first }}>
-  <summary><strong>{{ p.name }}</strong> <small>{{ p.source }}</small></summary>
+<details class="card prompt" {{ "open" if loop.first }}>
+  <summary>
+    <strong>{{ p.label|t }}</strong>
+    <small>{{ p.source|t }}</small>
+  </summary>
+  <p class="hint">{% if p.name == "about_me" %}{{ "Facts about you that any reply may need: what you do, where you live, what you're busy with these days."|t }}{% elif p.name == "unknown" %}{{ "How to talk to people you haven't put in a group yet."|t }}{% else %}{{ "How to talk to people you marked as:"|t }} {{ p.label|t }}{% endif %}</p>
   <form method="post" action="{{ root }}/prompts/{{ p.name }}">
-    <textarea name="text" rows="14" dir="auto">{{ p.text }}</textarea>
-    <button>{{ "Save"|t }}</button> <small>{% if p.name != "about_me" %}{{ "Empty deletes your file, so the example applies again."|t }}{% else %}{{ "Empty deletes your file (template: prompts/about_me.example.txt)."|t }}{% endif %}</small>
+    <textarea name="text" rows="12" dir="auto" aria-label="{{ p.label|t }}">{{ p.text }}</textarea>
+    <div class="row">
+      <button class="primary">{{ "Save"|t }}</button>
+      <small>{% if p.name != "about_me" %}{{ "Leave it empty and save to go back to the ready-made sample."|t }}{% else %}{{ "Leave it empty and save to remove it."|t }}{% endif %}</small>
+    </div>
   </form>
 </details>
 {% endfor %}

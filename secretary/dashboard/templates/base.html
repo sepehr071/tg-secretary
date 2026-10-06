@@ -3,23 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tg-secretary</title>
+<meta name="theme-color" content="#173f3a">
+<title>{{ "tg-secretary"|t }}</title>
 <link rel="stylesheet" href="{{ root }}/static/style.css">
 </head>
 <body>
+{% set path = request.url.path %}
+<header class="top">
+  <a class="brand" href="{{ root }}/">{{ "tg-secretary"|t }}</a>
+  {% if hosted %}<a class="top-link" href="/account">{{ "Your account"|t }}</a>{% endif %}
+  {% if request.state.pending is defined and not hosted %}
+  <form method="post" action="{{ root }}/logout" class="top-link"><button class="link">{{ "Log out"|t }}</button></form>
+  {% endif %}
+</header>
 {% if request.state.pending is defined %}
-<nav>
-  <strong>tg-secretary</strong>
-  <a href="{{ root }}/">{{ "Status"|t }}</a>
-  <a href="{{ root }}/settings">{{ "Settings"|t }}</a>
-  <a href="{{ root }}/contacts">{{ "Contacts"|t }}</a>
-  <a href="{{ root }}/prompts">{{ "Prompts"|t }}</a>
-  <a href="{{ root }}/drafts">{{ "Drafts"|t }}{% if request.state.pending %} ({{ request.state.pending }}){% endif %}</a>
-  {% if not hosted %}<form method="post" action="{{ root }}/logout"><button>{{ "Log out"|t }}</button></form>{% endif %}
+<nav class="tabs" aria-label="{{ 'Sections'|t }}">
+  {% for href, label in (("/", "Status"), ("/drafts", "Drafts"), ("/contacts", "Contacts"), ("/prompts", "Prompts"), ("/settings", "Settings")) %}
+  {% set here = path == href if href == "/" else path.startswith(href) %}
+  <a href="{{ root }}{{ href }}"{% if here %} aria-current="page"{% endif %}>{{ label|t }}
+    {%- if href == "/drafts" and request.state.pending %} <span class="badge">{{ request.state.pending|num }}</span>{% endif %}</a>
+  {% endfor %}
 </nav>
 {% endif %}
-{% if request.query_params.msg %}<p class="flash ok" dir="auto">{{ request.query_params.msg }}</p>{% endif %}
-{% if err or request.query_params.err %}<p class="flash err" dir="auto">{{ err or request.query_params.err }}</p>{% endif %}
-<main>{% block content %}{% endblock %}</main>
+<main>
+{% if request.query_params.msg %}<p class="flash ok" role="status" dir="auto">{{ request.query_params.msg }}</p>{% endif %}
+{% if err or request.query_params.err %}<p class="flash err" role="alert" dir="auto">{{ err or request.query_params.err }}</p>{% endif %}
+{% block content %}{% endblock %}
+</main>
 </body>
 </html>

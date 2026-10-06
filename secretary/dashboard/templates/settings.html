@@ -45,7 +45,7 @@
     <p class="group-hint">{{ "How soon replies go out."|t }}</p>
     <div class="setting">
       <label for="delay_override"><b>{{ "Wait before replying"|t }}</b><small>{{ "Gives you time to answer yourself first. Leave empty for the default."|t }}</small></label>
-      <span class="unit"><input type="number" min="0" id="delay_override" name="delay_override" value="{{ live.delay_override }}" placeholder="{{ s.auto_reply_delay_seconds }}"> {{ "seconds"|t }}</span>
+      <span class="unit"><input type="number" min="0" id="delay_override" name="delay_override" value="{{ live.delay_override }}" placeholder="{{ s.auto_reply_delay_seconds|num }}"> {{ "seconds"|t }}</span>
     </div>
     <div class="setting">
       <span><b>{{ "Quiet hours"|t }}</b><small>{{ "Leave both empty to reply at any hour."|t }}</small></span>
@@ -73,7 +73,7 @@
     {% for key, label, default in live_ints if key != "delay_override" %}
     <div class="setting">
       <label for="{{ key }}"><b>{{ label|t }}</b></label>
-      <input type="number" min="0" id="{{ key }}" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default }} ({{ 'default'|t }})">
+      <input type="number" min="0" id="{{ key }}" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default|num }} ({{ 'default'|t }})">
     </div>
     {% endfor %}
     <div class="setting">

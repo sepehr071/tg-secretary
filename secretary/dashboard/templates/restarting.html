@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <meta http-equiv="refresh" content="8;url={{ root }}/">
+<section class="card narrow">
 <h1>{{ "Restarting…"|t }}</h1>
 <p>{{ "Under pm2 the bot comes back in a few seconds and this page reloads. Without pm2 the bot is now stopped; start it again by hand."|t }}</p>
+</section>
 {% endblock %}

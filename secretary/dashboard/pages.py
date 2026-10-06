@@ -11,7 +11,8 @@ from fastapi import APIRouter, Request
 
 from .. import db, setup
 from ..config import settings
-from .web import back, render, t
+from .contacts import display_name
+from .web import back, fa_digits, render, t
 
 router = APIRouter()
 
@@ -22,7 +23,24 @@ def _duration(seconds: float) -> str:
     minutes = int(seconds // 60)
     days, minutes = divmod(minutes, 1440)
     hours, minutes = divmod(minutes, 60)
-    return f"{days}d {hours}h" if days else f"{hours}h {minutes}m"
+    parts = ((days, "d"), (hours, "h")) if days else ((hours, "h"), (minutes, "m"))
+    if settings.dashboard_lang == "fa":
+        return fa_digits(" و ".join(f"{n} {t(unit)}" for n, unit in parts))
+    return " ".join(f"{n}{unit}" for n, unit in parts)
+
+
+def _health(connections: list[dict], paused: bool, credit: dict | None) -> str:
+    """One word for the Status hero: what (if anything) stops replies right now."""
+    if not connections:
+        return "not_connected"
+    c = connections[0]  # newest; the bot only uses the owner's latest connection
+    if not c.get("is_enabled"):
+        return "disabled"
+    if "reply" in c["missing"]:
+        return "no_reply"
+    if credit and credit.get("limit_remaining") is not None and credit["limit_remaining"] <= 0.01:
+        return "no_credit"
+    return "paused" if paused else "ok"
 
 
 @router.get("/")
@@ -35,18 +53,24 @@ async def status(request: Request):
     for c in connections:
         rights = json.loads(c.get("rights_json") or "{}")
         c["missing"] = [label for key, label in _RIGHTS if not rights.get(key)]
+    paused = await db.get_state_bool("paused")
+    names = {c["chat_id"]: display_name(c) for c in await db.list_chats()}
+    replies = await db.recent_bot_replies(10)
+    for r in replies:
+        r["name"] = names.get(r["chat_id"], str(r["chat_id"]))
     return render(
         request, "status.html",
         bot_username=request.app.state.bot.username,
         uptime=_duration(time.time() - request.app.state.started_at),
         model=settings.openrouter_model,
-        paused=await db.get_state_bool("paused"),
+        paused=paused,
         approval=await db.get_state_bool("approval_mode"),
         innercircle=await db.get_state_bool("innercircle_gate", default=True),
         credit=credit,
         connections=connections,
+        health=_health(connections, paused, credit),
         stats=await db.get_stats(),
-        replies=await db.recent_bot_replies(10),
+        replies=replies,
     )
 
 

@@ -1,40 +1,93 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ "Status"|t }}</h1>
-<section class="card">
-  <p>{{ "Bot"|t }} <strong>@{{ bot_username }}</strong> · {{ "up"|t }} {{ uptime }} · {{ "model"|t }} <code>{{ model }}</code></p>
-  <p>
-    {{ "Auto-reply:"|t }} {% if paused %}<span class="bad">{{ "paused"|t }}</span>{% else %}<span class="good">{{ "on"|t }}</span>{% endif %}
-    · {{ "Approval mode:"|t }} {{ ("on" if approval else "off")|t }}
-    · {{ "Inner-circle gate:"|t }} {{ ("on" if innercircle else "off")|t }}
-    · <a href="{{ root }}/settings">{{ "change"|t }}</a>
-  </p>
-  <p>{{ "OpenRouter credit:"|t }}
-    {% if credit is none %}{{ "unavailable"|t }}
-    {% elif credit.limit_remaining is none %}{{ "no limit, used"|t }} ${{ "%.2f"|format(credit.usage or 0) }}
-    {% else %}${{ "%.2f"|format(credit.limit_remaining) }} {{ "left"|t }}{% endif %}
-  </p>
-</section>
-<section class="card">
-  <h2>{{ "Business connection"|t }}</h2>
-  {% for c in connections %}
-    <p>{{ ("enabled" if c.is_enabled else "disabled")|t }}
-    {% if c.missing %} · <span class="bad">{{ "missing rights:"|t }} {{ c.missing|map("t")|join(", ") }}</span>
-      ({{ "Telegram → Settings → Chat Automation"|t }}){% endif %}</p>
+<h1 class="sr-only">{{ "Status"|t }}</h1>
+{% set c = connections[0] if connections else none %}
+<section class="verdict {{ 'is-ok' if health == 'ok' else ('is-paused' if health == 'paused' else 'is-bad') }}" aria-labelledby="verdict-title">
+  {% if health == "ok" %}
+    <h2 id="verdict-title">{{ "Your secretary is on and answering."|t }}</h2>
+    <p>{% if approval %}{{ "Every reply waits for your OK in Drafts before it goes out."|t }}
+       {% else %}{{ "When someone messages you and you don't answer, it replies for you."|t }}{% endif %}</p>
+  {% elif health == "paused" %}
+    <h2 id="verdict-title">{{ "Your secretary is paused."|t }}</h2>
+    <p>{{ "Nothing is sent for you until you turn it back on."|t }}</p>
+    <p><a class="btn" href="{{ root }}/settings">{{ "Turn it back on in Settings"|t }}</a></p>
+  {% elif health == "no_credit" %}
+    <h2 id="verdict-title">{{ "Your credit has run out."|t }}</h2>
+    <p>{{ "Replies stop until you add credit."|t }}</p>
+    {% if hosted %}<p><a class="btn" href="/account">{{ "Add credit"|t }}</a></p>{% endif %}
   {% else %}
-    <p class="bad">{{ "Not connected. In Telegram open Settings → Chat Automation and pick"|t }} @{{ bot_username }}.</p>
-  {% endfor %}
+    <h2 id="verdict-title">{{ "Your secretary can't answer yet."|t }}</h2>
+    {% if health == "not_connected" %}
+    <p>{{ "Connect it to your Telegram account:"|t }}</p>
+    <ol class="steps">
+      <li>{{ "Open Telegram and go to Settings."|t }}</li>
+      <li>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</li>
+      <li>{{ "Enter this bot's username and add it:"|t }} <bdi class="handle">@{{ bot_username }}</bdi></li>
+      <li>{{ "Turn on permission to reply to messages, then come back here."|t }}</li>
+    </ol>
+    {% elif health == "disabled" %}
+    <p>{{ "The bot is connected but switched off in Telegram:"|t }}</p>
+    <ol class="steps">
+      <li>{{ "Open Telegram and go to Settings."|t }}</li>
+      <li>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</li>
+      <li>{{ "Select"|t }} <bdi class="handle">@{{ bot_username }}</bdi> {{ "and turn it on."|t }}</li>
+    </ol>
+    {% else %}
+    <p>{{ "The bot is connected but isn't allowed to send replies:"|t }}</p>
+    <ol class="steps">
+      <li>{{ "Open Telegram and go to Settings."|t }}</li>
+      <li>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</li>
+      <li>{{ "Select"|t }} <bdi class="handle">@{{ bot_username }}</bdi> {{ "and turn on permission to reply to messages."|t }}</li>
+    </ol>
+    {% endif %}
+  {% endif %}
+  {% if c and c.missing and health in ("ok", "paused", "no_credit") %}
+  <p class="aside">{{ "Missing permission in Telegram:"|t }} {{ c.missing|map("t")|join("، " if lang == "fa" else ", ") }}.
+     {{ "Turn it on under Chat Automation for the best results."|t }}</p>
+  {% endif %}
 </section>
+
+{% if stats.pending %}
+<a class="callout" href="{{ root }}/drafts">
+  <span><b>{{ stats.pending|num }} {{ "replies are waiting for your OK"|t }}</b>
+  <small>{{ "Nothing is sent until you check them."|t }}</small></span>
+  <span class="btn primary">{{ "Review drafts"|t }}</span>
+</a>
+{% endif %}
+
+<dl class="facts">
+  <div>
+    <dt>{{ "Credit left"|t }}</dt>
+    <dd>{% if credit is none %}<span class="muted">{{ "unavailable"|t }}</span>
+      {% elif credit.limit_remaining is none %}{{ "no limit, used"|t }} ${{ "%.2f"|format(credit.usage or 0)|num }}
+      {% else %}${{ "%.2f"|format(credit.limit_remaining)|num }} {{ "left"|t }}{% endif %}</dd>
+  </div>
+  <div><dt>{{ "Replies today"|t }}</dt><dd>{{ stats.replies_today|num }}</dd></div>
+  <div><dt>{{ "Replies this week"|t }}</dt><dd>{{ stats.replies_week|num }}</dd></div>
+  <div><dt>{{ "People who messaged"|t }}</dt><dd>{{ stats.total_chats|num }}</dd></div>
+</dl>
+
 <section class="card">
-  <h2>{{ "Activity"|t }}</h2>
-  <p>{{ stats.replies_today }} {{ "replies today"|t }} · {{ stats.replies_week }} {{ "this week"|t }} ·
-     {{ stats.total_chats }} {{ "chats"|t }} · <a href="{{ root }}/drafts">{{ stats.pending }} {{ "drafts waiting"|t }}</a></p>
-  <table>
-    <tr><th>{{ "When"|t }}</th><th>{{ "Chat"|t }}</th><th>{{ "Reply"|t }}</th></tr>
+  <h2>{{ "Latest replies"|t }}</h2>
+  {% if replies %}
+  <ul class="feed">
     {% for r in replies %}
-    <tr><td>{{ r.created_at|ts }}</td><td><a href="{{ root }}/contacts/{{ r.chat_id }}">{{ r.chat_id }}</a></td>
-        <td dir="auto">{{ r.content[:120] }}</td></tr>
-    {% else %}<tr><td colspan="3">{{ "No bot replies yet."|t }}</td></tr>{% endfor %}
-  </table>
+    <li>
+      <div class="feed-head"><a href="{{ root }}/contacts/{{ r.chat_id }}" dir="auto">{{ r.name }}</a>
+        <time>{{ r.created_at|ts }}</time></div>
+      <p dir="auto">{{ r.content[:160] }}{% if r.content|length > 160 %}…{% endif %}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">{{ "No replies sent yet. They'll show up here once your secretary answers someone."|t }}</p>
+  {% endif %}
 </section>
+
+<details class="tech">
+  <summary>{{ "Technical details"|t }}</summary>
+  <p>{{ "Bot"|t }} <bdi>@{{ bot_username }}</bdi> · {{ "running for"|t }} {{ uptime }} · {{ "model"|t }} <code>{{ model }}</code><br>
+     {{ "Ask me before sending"|t }}: {{ ("on" if approval else "off")|t }} ·
+     {{ "Hold sensitive messages from close people"|t }}: {{ ("on" if innercircle else "off")|t }}</p>
+</details>
 {% endblock %}

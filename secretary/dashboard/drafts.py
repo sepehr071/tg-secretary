@@ -22,7 +22,7 @@ async def resolve(request: Request, pid: int, action: str = Form(""), text: str 
     elif action == "send":
         pending = await db.get_pending(pid)
         if pending is None:
-            return back("/drafts", err=t("Pending reply not found:") + f" #{pid}")
+            return back("/drafts", err="This reply was already handled or has expired.")
         body = text.replace("\r\n", "\n").strip()
         if not body:
             return back("/drafts", err="The reply is empty.")
@@ -32,6 +32,11 @@ async def resolve(request: Request, pid: int, action: str = Form(""), text: str 
             bot, pid, "edited" if edited else "approved", body if edited else None)
     else:
         return back("/drafts", err="Unknown action.")
-    if result.startswith(("sent", "skipped")):
-        return back("/drafts", msg=result)
-    return back("/drafts", err=result)
+    # _resolve_pending returns English lines for the Telegram owner; map them to fixed texts.
+    if result.startswith("sent"):
+        return back("/drafts", msg="Sent.")
+    if result.startswith("skipped"):
+        return back("/drafts", msg="Skipped. Nothing was sent.")
+    if result.startswith("send failed"):
+        return back("/drafts", err=t("Couldn't send it. Try again in a moment.") + result[len("send failed"):])
+    return back("/drafts", err="This reply was already handled or has expired.")
