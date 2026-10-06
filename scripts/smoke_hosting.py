@@ -687,6 +687,49 @@ async def check_router() -> None:
 
 
 @check
+async def check_router_edges() -> None:
+    sent, fwd = [], []
+    tg.TRANSPORT = httpx.MockTransport(lambda r: (sent.append(r.url.path.rsplit("/", 1)[1]),
+                                                  httpx.Response(200, json={"ok": True, "result": True}))[1])
+    router.TRANSPORT = httpx.MockTransport(lambda r: (fwd.append(json.loads(r.content)), httpx.Response(200))[1])
+    await db.upsert_user(82, "Run2", None)
+    tid = await db.create_tenant(82)
+    await db.update_tenant(tid, status="running", proxy_secret="s82")
+    await db.alloc_port(tid)
+    user = {"id": 82, "is_bot": False, "first_name": "R"}
+
+    def bc(uid, enabled, cid="c82"):
+        return {"update_id": 1, "business_connection": {"id": cid, "user": {"id": uid}, "user_chat_id": uid,
+                "date": 0, "can_reply": True, "is_enabled": enabled}}
+    assert await router.dispatch(bc(82, False)) == "forwarded"          # running tenant sees disconnects
+    grp = {"update_id": 2, "message": {"message_id": 1, "date": 0, "chat": {"id": -5, "type": "group"},
+           "from": user, "text": "/start"}}
+    n = len(fwd)
+    assert await router.dispatch(grp) == "dropped" and len(fwd) == n    # groups never routed
+    stranger_grp = {**grp, "message": {**grp["message"], "from": {**user, "id": 98}}}
+    assert await router.dispatch(stranger_grp) == "dropped"
+
+    # Stopped tenant: no register-on-site DM. Disconnect from a stranger: no DM, notice not consumed.
+    await db.update_tenant(tid, status="stopped")
+    assert await router.dispatch(bc(82, True)) == "dropped"
+    assert await router.dispatch(bc(98, False, "c98")) == "dropped"
+    assert "sendMessage" not in sent, sent
+    assert await router.dispatch(bc(98, True, "c98")) == "dropped"
+    assert sent.count("sendMessage") == 1
+
+    # Network failures never escape (and never carry the token in a traceback).
+    def boom(r): raise httpx.ConnectError("https://api.telegram.org/bot1:platform/x")
+    tg.TRANSPORT = httpx.MockTransport(boom)
+    late = {"update_id": 3, "business_message": {"business_connection_id": "c-net", "message_id": 1, "date": 0,
+            "chat": {"id": 1, "type": "private"}, "text": "x"}}
+    assert await router.dispatch(late) == "dropped"
+    assert await router.dispatch(bc(97, True, "c97")) == "dropped"     # DM send fails quietly
+    await pbot._say(1, "x")
+    tg.TRANSPORT = None
+    router.TRANSPORT = None
+
+
+@check
 async def check_delete_best_effort() -> None:
     import subprocess
     app = happ.create_app()

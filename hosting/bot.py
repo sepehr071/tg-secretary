@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
+
 from . import db, openrouter, router, tg
 from .config import settings
 
@@ -14,8 +16,8 @@ CREDIT_CHECK_SECONDS = 1800
 async def _say(chat_id: int, text: str) -> None:
     try:
         await tg.call(settings.platform_bot_token, "sendMessage", chat_id=chat_id, text=text)
-    except tg.TelegramError as e:
-        log.warning("platform bot DM failed: %s", e)
+    except (tg.TelegramError, httpx.HTTPError) as e:  # httpx errors may carry the URL/token
+        log.warning("platform bot DM failed: %s", e if isinstance(e, tg.TelegramError) else type(e).__name__)
 
 
 ALLOWED_UPDATES = ["message", "callback_query", "business_connection", "business_message",
@@ -53,8 +55,8 @@ async def _credit_loop() -> None:
     while True:
         try:
             await check_credit_once()
-        except Exception:  # noqa: BLE001 — keep the loop alive
-            log.exception("credit loop")
+        except Exception as e:  # noqa: BLE001 — keep the loop alive
+            log.warning("credit loop: %s", type(e).__name__)
         await asyncio.sleep(CREDIT_CHECK_SECONDS)
 
 
@@ -78,7 +80,7 @@ async def run_platform_bot() -> None:
                 offset = u["update_id"] + 1
                 try:
                     await handle_update(u)
-                except Exception:  # noqa: BLE001 — one bad update must not stop the loop
-                    log.exception("update %s failed", u.get("update_id"))
+                except Exception as e:  # noqa: BLE001 — one bad update must not stop the loop
+                    log.warning("update %s failed: %s", u.get("update_id"), type(e).__name__)  # no traceback: may carry the token URL
     finally:
         credit.cancel()
