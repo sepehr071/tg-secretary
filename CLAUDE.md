@@ -1,6 +1,6 @@
 # tg-secretary
 
-Personal Telegram Business autoresponder. Single-user. OpenRouter-backed LLM, OGG voice transcription via `openai/whisper-large-v3`, per-contact memory, file-backed persona overrides, HITL approval mode, inner-circle safety gate.
+Personal Telegram Business autoresponder. Single-user per process; `hosting/` runs one process per user behind a Persian website with one shared bot. OpenRouter-backed LLM, OGG voice transcription via `openai/whisper-large-v3`, per-contact memory, file-backed persona overrides, HITL approval mode, inner-circle safety gate.
 
 **Source:** https://github.com/sepehr071/tg-secretary
 
@@ -29,15 +29,21 @@ secretary/
 └── dashboard/        owner web UI served in-process on 127.0.0.1
     ├── app.py        create_app, guard middleware, login/logout, uvicorn server task
     ├── auth.py       one-time login tokens + hashed sessions in bot_state, Host/Origin guards
-    ├── pages.py      Status, Settings (live bot_state + .env config), restart
+    ├── pages.py      Status, Settings (simple view + "Advanced" switch; live bot_state + .env config), restart
     ├── contacts.py   contacts, memory, per-contact prompt files, persona/about_me editor
     ├── drafts.py     HITL queue (Send / Skip)
-    └── web.py, templates/, static/
+    ├── fa.py         Persian strings (DASHBOARD_LANG=fa), used via the `t` filter / web.t()
+    └── web.py, templates/, static/ (style.css + Vazirmatn fonts, same palette as hosting/)
 
-hosting/              hosted platform: Telegram login, managed bots, per-tenant pm2 (see hosting/README.md)
-├── app.py            FastAPI site: onboarding, account, /admin, /app proxy
-├── bot.py            platform bot (managed bots, credit alerts)
-├── tenants.py, pm2.py, openrouter.py, tg.py, oidc.py, proxy.py, db.py, config.py
+hosting/              hosted multi-user platform (see hosting/README.md)
+├── app.py            FastAPI site: Telegram login, consent, profile, account, /admin payments
+├── bot.py            the ONLY poller of the shared bot: routes updates, /start for strangers, credit alerts
+├── router.py         update → owning tenant (by user / business_connection_id) → POST 127.0.0.1:<port>/_tg/update
+├── proxy.py          /app/* → tenant dashboard with X-Platform-Auth
+├── tenants.py        tenant dir/.env, OpenRouter key (absolute limit = sum of payments), pm2, delete
+├── oidc.py           Telegram OIDC login + classic Login Widget fallback
+├── pm2.py, openrouter.py, tg.py, db.py, config.py
+├── templates/, static/  Persian RTL site
 └── ecosystem.config.cjs, Caddyfile.example, README.md
 
 prompts/
@@ -160,11 +166,27 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 - `secretary/setup.py` must not import `secretary.config` at module level (Settings() fails without `.env`). The dashboard reuses its `mask` / `merge_env` / network checks; tests stub them via the `setup` module attribute.
 - `smoke_*.py` scripts must close the DB in `finally`: an open aiosqlite thread hangs the process when an assert fails.
 
+### Hosted platform (hosting/)
+- **Model**: one control plane (`python -m hosting`, pm2 `tg-hosting`, 127.0.0.1:8700 behind nginx/Caddy) + one `python -m secretary` per user (pm2 `tgs-<id>`, cwd `tenants/<id>/`, own `.env`, `secretary.db`, `prompts/`). Bot code stays single-tenant; `HOSTED=1` switches its behaviour.
+- **One shared bot**: every user connects the platform bot in Telegram Settings > Chat Automation. Secretary Mode is toggled ONCE by the operator in BotFather (no API can toggle it for another bot; that's why per-user managed bots were dropped). The platform bot must be a dedicated bot — never a token another process already polls (two pollers split updates; prod lost messages once).
+- **Update routing**: `hosting/bot.py` is the only `getUpdates` caller. `router.dispatch` forwards to tenants with status `running` only; strangers are dropped (one "register on the site" DM per account with no tenant). DMs/callbacks route by `from.id` in private chats only. Each update logs `update <id> <kind> -> forwarded|dropped|platform` (never contents).
+- **Tenant intake (HOSTED=1)**: no polling (`Application.builder().updater(None)`); `POST /_tg/update` on the tenant dashboard puts the update on PTB's `update_queue`. It requires `X-Platform-Auth` AND `X-Platform-Route: update`; the `/app/` proxy forwards only `content-type`/`accept` and 404s any normalized `/_tg*` path, so users can't inject updates. Never relax either check — with a shared bot a forged connection could reach another user's chats.
+- **Connections the tenant never saw** (user connected before paying / while stopped): `handlers._connection` fetches `get_business_connection` in hosted mode and stores it only if `user.id == OWNER_USER_ID`.
+- **Rights**: a connection without `can_reply` makes the secretary skip every message (`not allowed to reply`). Account page (`tenants.connection_state`: none / no_reply / ok) and the owner DM (Persian when `DASHBOARD_LANG=fa`) tell the user to enable reply permission under Chat Automation.
+- **Owner-active cooldown** (default 600 s) skips a chat the owner typed in recently — looks like "nothing happened" during testing; `/cooldown 0` to test, `/cooldown off` after.
+- **Money**: `tenants.sync_limit` sets the OpenRouter key limit to the ABSOLUTE sum of the tenant's payments (idempotent under retries/timeouts). Trial = payment row `trial-user-<tg_id>` (once per person). `top_up` needs `profile_done`; admin records payments with a per-row `client_ref`.
+- **Consent** (Telegram Bot Developer Terms §5.4): no tenant/profile/activation before the current `CONSENT_VERSION` is accepted.
+- **Secrets/logs**: tenant `.env` mode 600; `hosting.db` holds proxy secrets + key hashes, never keys. Don't log update/message contents (`_on_error` logs id + kind only) or Bot API URLs (token inside); log `type(e).__name__` for httpx errors. pm2 subprocesses get an env scrubbed of hosting settings.
+- **Login**: OIDC when `OIDC_CLIENT_ID` is set (BotFather "switch to OpenID login", redirect `https://<domain>/auth/callback`); else classic Login Widget (`/setdomain`), verified by HMAC with sha256(bot token).
+- **Dashboard in hosted mode**: served under `/app` (`DASHBOARD_ROOT_PATH`), Persian (`DASHBOARD_LANG=fa`), header auth instead of login links, token/key/owner fields hidden. All URLs/redirects use `{{ root }}` / `web.back()`.
+- **Staging**: personal-france (`54.38.3.7`), `/opt/tg-hosting`, user `tgsec`, nginx site `monshi` → `https://monshi.sepehrradmard.ir`, platform bot `@monshi_platform_bot`. Deploy = `git archive HEAD` → upload → extract over `/opt/tg-hosting` → `pm2 restart tg-hosting tgs-<id>` as `tgsec`. `hosting.env` is server-only. That box also serves the live mcpfarsi site — only touch the `monshi` nginx site.
+
 ### Smoke tests
 - Offline core logic (no .env, no network): `uv run python scripts/smoke_core.py`.
 - Setup wizard helpers: `uv run python scripts/smoke_setup.py`.
 - Dashboard routes + DB helpers (no network): `PYTHONIOENCODING=utf-8 uv run python scripts/smoke_dashboard.py`.
-- Hosting platform (no network): `PYTHONIOENCODING=utf-8 uv run python scripts/smoke_hosting.py`.
+- Hosting platform (no network): `PYTHONIOENCODING=utf-8 uv run python scripts/smoke_hosting.py` — routing, onboarding, payments, proxy, login. Expected tracebacks in its output come from deliberate failure cases.
+- Staging logs: `pm2 logs tg-hosting` (routing lines `hosting.bot: update …`) and `tenants/<id>/logs/err.log` (per-user secretary).
 - Import-time crash: `uv run python -c "import secretary.__main__; print('OK')"`.
 - Migration sanity: `init_db`, then `PRAGMA table_info(<table>)` for any migrated table.
 - Log filter on Ubuntu: `pm2 logs tg-secretary --lines 200 | grep -iE "voice|whisper|httpx|llm"`.
