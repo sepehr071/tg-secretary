@@ -278,14 +278,20 @@ async def check_provisioning() -> None:
     pm2.RUN = fake_run
 
     # Connected check reads the tenant's own secretary.db.
-    assert await tenants.is_connected(tid) is False
+    assert await tenants.connection_state(tid) == "none"
     import sqlite3
     con = sqlite3.connect(tenants.tenant_dir(tid) / "secretary.db")
-    con.execute("CREATE TABLE connections (conn_id TEXT, owner_user_id INTEGER, is_enabled INTEGER)")
-    con.execute("INSERT INTO connections VALUES ('c', 20, 1)")
+    con.execute("CREATE TABLE connections (conn_id TEXT, owner_user_id INTEGER, can_reply INTEGER, is_enabled INTEGER)")
+    con.execute("INSERT INTO connections VALUES ('c', 20, 0, 1)")
+    con.commit()
+    assert await tenants.connection_state(tid) == "no_reply"
+    con.execute("UPDATE connections SET can_reply=1")
+    con.commit()
+    assert await tenants.connection_state(tid) == "ok"
+    con.execute("UPDATE connections SET is_enabled=0")
     con.commit()
     con.close()
-    assert await tenants.is_connected(tid) is True
+    assert await tenants.connection_state(tid) == "none"
 
     await tenants.delete(tid)
     assert not tenants.tenant_dir(tid).exists()
@@ -374,6 +380,23 @@ async def check_onboarding_v2() -> None:
         await db.update_tenant(t["id"], status="running")
         r = await c.get("/account")
         assert "@plat_bot" in r.text and "Chat Automation" in r.text
+        assert (await c.get("/account/connected")).json() == {"connected": False, "can_reply": False}
+
+        # Connected without the reply right: JSON says so and the page shows the fix.
+        import sqlite3
+        con = sqlite3.connect(tenants.tenant_dir(t["id"]) / "secretary.db")
+        con.execute("CREATE TABLE connections (conn_id TEXT, owner_user_id INTEGER, can_reply INTEGER, is_enabled INTEGER)")
+        con.execute("INSERT INTO connections VALUES ('c', 120, 0, 1)")
+        con.commit()
+        assert (await c.get("/account/connected")).json() == {"connected": True, "can_reply": False}
+        r = await c.get("/account")
+        assert "اجازه&zwnj;ی پاسخ به پیام&zwnj;ها را روشن کنید" in r.text and "data-poll-connected" in r.text
+        con.execute("UPDATE connections SET can_reply=1")
+        con.commit()
+        con.close()
+        assert (await c.get("/account/connected")).json() == {"connected": True, "can_reply": True}
+        r = await c.get("/account")
+        assert "روشن کنید" not in r.text and "data-poll-connected" not in r.text
     assert not hasattr(tenants, "attach_bot")
 
 

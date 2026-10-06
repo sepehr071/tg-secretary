@@ -69,7 +69,18 @@ async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         bc.id, bc.user.id, bc.is_enabled, can_reply, can_read,
     )
 
-    if not bc.is_enabled:
+    if settings.dashboard_lang == "fa":
+        if not bc.is_enabled:
+            text = "\U0001f50c اتصال قطع شد؛ دیگر در چت\u200cهای شما جواب نمی\u200cدهم."
+        elif not (can_reply and can_read):
+            text = (
+                "\U0001f50c وصل شدم، ولی اجازه\u200cی خواندن و پاسخ به پیام\u200cها را ندارم، پس جواب نمی\u200cدهم.\n"
+                f"تنظیمات تلگرام > Chat Automation > @{ctx.bot.username} > "
+                "اجازه\u200cی پاسخ به پیام\u200cها را روشن کنید."
+            )
+        else:
+            text = "\U0001f50c وصل شدم. از این به بعد به پیام\u200cهای چت\u200cهایی که انتخاب کرده\u200cاید جواب می\u200cدهم."
+    elif not bc.is_enabled:
         text = "\U0001f50c Business connection disabled — I won't reply in your chats."
     else:
         missing = [n for n, ok in (("reply", can_reply), ("read messages", can_read)) if not ok]

@@ -38,8 +38,19 @@
 
 <section class="block">
   <h2>اتصال به تلگرام</h2>
-  {% if connected %}
+  {% if connection == "ok" %}
   <p class="status on">وصل است. منشی به پیام&zwnj;های چت&zwnj;هایی که انتخاب کرده&zwnj;اید پاسخ می&zwnj;دهد.</p>
+  {% elif connection == "no_reply" %}
+  <div class="panel" role="alert">
+    <p class="status off" data-poll-connected aria-live="polite"><strong>وصل است، ولی اجازه&zwnj;ی پاسخ ندارد.</strong> تا این اجازه را ندهید، منشی به هیچ پیامی جواب نمی&zwnj;دهد. در تلگرام:</p>
+    <ol class="steps compact">
+      <li><span>تنظیمات تلگرام</span></li>
+      <li><span><bdi dir="ltr">Chat Automation</bdi></span></li>
+      <li><span>انتخاب <bdi dir="ltr">@{{ bot_username }}</bdi></span></li>
+      <li><span>اجازه&zwnj;ی پاسخ به پیام&zwnj;ها را روشن کنید</span></li>
+    </ol>
+    <p class="hint">بعد از روشن کردن، این صفحه خودش به&zwnj;روز می&zwnj;شود.</p>
+  </div>
   {% else %}
   <p class="status off" data-poll-connected aria-live="polite">هنوز وصل نشده. در تلگرام این مسیر را بروید:</p>
   <ol class="steps compact">

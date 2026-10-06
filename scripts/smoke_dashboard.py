@@ -502,8 +502,24 @@ async def check_hosted_connection() -> None:
         assert row and row["owner_chat_id"] == 5150 and await db.get_connection("hc2")
         n = len(calls)
         assert await handlers._connection(ctx(5150), "hc2") and len(calls) == n       # cached after first fetch
+
+        # Connected without the reply right: the owner DM explains the fix, in Persian when fa.
+        sent: list[str] = []
+
+        async def send_message(chat_id, text, **_):
+            sent.append(text)
+
+        bc = NS(id="hc3", user=NS(id=5150), user_chat_id=5150, is_enabled=True,
+                rights=NS(can_reply=False, can_read_messages=True, to_dict=lambda: {}))
+        bot_ctx = NS(bot=NS(username="sec_bot", send_message=send_message))
+        await handlers.on_business_connection(NS(business_connection=bc), bot_ctx)
+        assert "Missing rights: reply" in sent[-1], sent
+        settings.dashboard_lang = "fa"
+        await handlers.on_business_connection(NS(business_connection=bc), bot_ctx)
+        assert "Chat Automation > @sec_bot" in sent[-1] and "روشن کنید" in sent[-1], sent
     finally:
         settings.hosted, settings.owner_user_id = old
+        settings.dashboard_lang = "en"
 
 
 async def main() -> None:

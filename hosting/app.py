@@ -155,12 +155,13 @@ def create_app() -> FastAPI:
         return render(request, "account.html", tenant=t, credit=credit,
                       payment_instructions=settings.payment_instructions,
                       bot_username=settings.platform_bot_username,
-                      connected=await tenants.is_connected(t["id"]))
+                      connection=await tenants.connection_state(t["id"]))
 
     @app.get("/account/connected")
     async def account_connected(request: Request):
         t = await db.get_tenant_by_owner(uid(request))
-        return JSONResponse({"connected": bool(t) and await tenants.is_connected(t["id"])})
+        state = await tenants.connection_state(t["id"]) if t else "none"
+        return JSONResponse({"connected": state != "none", "can_reply": state == "ok"})
 
     @app.get("/onboard/consent")
     async def consent_page(request: Request):

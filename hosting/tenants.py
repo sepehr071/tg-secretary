@@ -142,19 +142,25 @@ async def delete(tid: int) -> None:
     await db.release_tenant(tid)
 
 
-def _connected(path: Path, owner: int) -> bool:
+def _connection_state(path: Path, owner: int) -> str:
     if not path.exists():
-        return False
+        return "none"
     con = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        return con.execute("SELECT 1 FROM connections WHERE owner_user_id=? AND is_enabled=1",
-                           (owner,)).fetchone() is not None
+        row = con.execute("SELECT MAX(can_reply) FROM connections WHERE owner_user_id=? AND is_enabled=1",
+                          (owner,)).fetchone()
     except sqlite3.OperationalError:  # bot hasn't created its tables yet
-        return False
+        return "none"
     finally:
         con.close()
+    if row is None or row[0] is None:
+        return "none"
+    return "ok" if row[0] else "no_reply"
 
 
-async def is_connected(tid: int) -> bool:
+async def connection_state(tid: int) -> str:
+    """"none" | "no_reply" (connected without the reply right) | "ok"."""
     t = await db.get_tenant(tid)
-    return bool(t) and await asyncio.to_thread(_connected, tenant_dir(tid) / "secretary.db", t["owner_tg_id"])
+    if not t:
+        return "none"
+    return await asyncio.to_thread(_connection_state, tenant_dir(tid) / "secretary.db", t["owner_tg_id"])

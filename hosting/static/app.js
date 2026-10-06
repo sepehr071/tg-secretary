@@ -11,5 +11,5 @@ function poll(url, every, done) {
 }
 
 if (document.querySelector("[data-poll-connected]")) {
-  poll("/account/connected", 5000, (s) => s.connected);
+  poll("/account/connected", 5000, (s) => s.connected && s.can_reply);
 }
