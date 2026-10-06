@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ log = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve().parent
 COOKIE = "hs_session"
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
-PUBLIC_PATHS = {"/", "/login", oidc.REDIRECT_PATH}
+PUBLIC_PATHS = {"/", "/login", oidc.REDIRECT_PATH, oidc.WIDGET_PATH}
 MAX_AMOUNT = 1000.0
 
 
@@ -86,8 +87,17 @@ def create_app() -> FastAPI:
     async def index(request: Request):
         return render(request, "index.html")
 
+    async def _start_session(tg_id: int) -> RedirectResponse:
+        resp = RedirectResponse("/account", status_code=303)
+        resp.set_cookie(COOKIE, await db.create_session(tg_id), max_age=db.SESSION_TTL,
+                        httponly=True, secure=True, samesite="lax", path="/")
+        return resp
+
     @app.get("/login")
-    async def login():
+    async def login(request: Request):
+        if not settings.oidc_client_id:
+            return render(request, "login.html", bot=settings.platform_bot_username,
+                          auth_url=settings.public_url + oidc.WIDGET_PATH)
         verifier, challenge = oidc.new_pkce()
         state = secrets.token_urlsafe(24)
         await db.put_oauth_state(state, verifier)
@@ -108,10 +118,19 @@ def create_app() -> FastAPI:
             log.exception("oidc exchange failed")
             return render(request, "error.html", 400, title="ورود ناموفق",
                           body="دوباره تلاش کنید.")
-        resp = RedirectResponse("/account", status_code=303)
-        resp.set_cookie(COOKIE, await db.create_session(tg_id), max_age=db.SESSION_TTL,
-                        httponly=True, secure=True, samesite="lax", path="/")
-        return resp
+        return await _start_session(tg_id)
+
+    @app.get(oidc.WIDGET_PATH)
+    async def widget_login(request: Request):
+        try:
+            user = oidc.widget_user(dict(request.query_params), time.time())
+            tg_id = int(user["id"])
+            name = " ".join(p for p in (user.get("first_name"), user.get("last_name")) if p)
+            await db.upsert_user(tg_id, name, user.get("username"))
+        except ValueError:
+            return render(request, "error.html", 400, title="ورود ناموفق",
+                          body="دوباره تلاش کنید.")
+        return await _start_session(tg_id)
 
     @app.post("/logout")
     async def logout(request: Request):

@@ -781,6 +781,48 @@ async def check_minor_fixes() -> None:
     tg.TRANSPORT = None
 
 
+def _widget_params(**fields) -> dict:
+    """Sign fields the way Telegram's Login Widget does (key = sha256(bot token))."""
+    import hashlib
+    import hmac
+    data = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
+    secret = hashlib.sha256(settings.platform_bot_token.encode()).digest()
+    return {**fields, "hash": hmac.new(secret, data.encode(), hashlib.sha256).hexdigest()}
+
+
+@check
+async def check_login_widget() -> None:
+    import time
+    now = int(time.time())
+    good = _widget_params(id="70", first_name="Sara", username="sara", auth_date=str(now))
+    assert oidc.widget_user(good, now)["id"] == "70"
+    for bad in ({**good, "id": "71"}, {**good, "hash": "0" * 64}, {k: v for k, v in good.items() if k != "hash"},
+                _widget_params(id="70", auth_date=str(now - 90000))):
+        try:
+            oidc.widget_user(bad, now)
+            raise AssertionError(f"accepted {bad}")
+        except ValueError:
+            pass
+
+    old = settings.oidc_client_id
+    settings.oidc_client_id = ""  # no OIDC client: /login shows the widget instead
+    try:
+        app = happ.create_app()
+        async with web(app) as c:
+            r = await c.get("/login")
+            assert r.status_code == 200 and 'data-telegram-login="plat_bot"' in r.text, r.status_code
+            assert 'data-auth-url="https://host.test/auth/telegram"' in r.text
+            r = await c.get("/auth/telegram", params={**good, "id": "71"})
+            assert r.status_code == 400 and happ.COOKIE not in r.cookies
+            r = await c.get("/auth/telegram", params=good)
+            assert r.status_code == 303 and r.headers["location"] == "/account"
+            cookie = r.cookies[happ.COOKIE]
+        assert await db.session_user(cookie) == 70
+        assert (await db.get_user(70))["first_name"] == "Sara"
+    finally:
+        settings.oidc_client_id = old
+
+
 async def main() -> None:
     await db.init(settings.db_path)
     try:

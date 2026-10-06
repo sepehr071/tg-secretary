@@ -8,8 +8,9 @@ class HostingSettings(BaseSettings):
 
     platform_bot_token: str
     platform_bot_username: str
-    oidc_client_id: str
-    oidc_client_secret: str
+    # Empty = log in with the classic Login Widget (needs /setdomain on the platform bot).
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
     openrouter_mgmt_key: str
     public_url: str  # https://example.com, no trailing slash
     admin_tg_id: int

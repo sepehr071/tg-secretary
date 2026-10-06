@@ -1,8 +1,10 @@
-"""Log in with Telegram (OIDC, Authorization Code + PKCE)."""
+"""Log in with Telegram: OIDC (Authorization Code + PKCE), or the classic Login Widget
+when no OIDC client is configured."""
 from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import secrets
 import time
@@ -17,7 +19,32 @@ AUTH_URL = "https://oauth.telegram.org/auth"
 TOKEN_URL = "https://oauth.telegram.org/token"
 ISSUER = "https://oauth.telegram.org"
 REDIRECT_PATH = "/auth/callback"
+WIDGET_PATH = "/auth/telegram"
+WIDGET_MAX_AGE = 86400
 TRANSPORT: httpx.AsyncBaseTransport | None = None
+
+
+def widget_user(params: dict[str, str], now: float) -> dict[str, str]:
+    """Verify a Login Widget redirect (core.telegram.org/widgets/login#checking-authorization).
+
+    The hash is HMAC-SHA256 over the sorted key=value lines, keyed by sha256(bot token),
+    so only Telegram can produce it for our platform bot.
+    """
+    given = params.get("hash", "")
+    data = "\n".join(f"{k}={params[k]}" for k in sorted(params) if k != "hash")
+    secret = hashlib.sha256(settings.platform_bot_token.encode()).digest()
+    expected = hmac.new(secret, data.encode(), hashlib.sha256).hexdigest()
+    if not given or not hmac.compare_digest(given, expected):
+        raise ValueError("bad widget hash")
+    try:
+        stale = now - float(params.get("auth_date", "")) > WIDGET_MAX_AGE
+    except ValueError as e:
+        raise ValueError("bad auth_date") from e
+    if stale:
+        raise ValueError("stale widget login")
+    if not params.get("id", "").isdigit():
+        raise ValueError("no telegram id")
+    return params
 
 
 def _b64url(raw: bytes) -> str:
