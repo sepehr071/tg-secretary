@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}معرفی شما | منشی تلگرام{% endblock %}
+{% block content %}
+<p class="stage">مرحله&zwnj;ی ۳ از ۴</p>
+<h1>خودتان را معرفی کنید</h1>
+<p class="lead">منشی با همین چند خط یاد می&zwnj;گیرد شبیه شما بنویسد. لازم نیست کامل باشد؛ بعداً هم می&zwnj;توانید تغییرش دهید.</p>
+<form class="panel" method="post" action="/onboard/profile">
+  <label for="first_name">اسم کوچک</label>
+  <input id="first_name" name="first_name" type="text" dir="auto" value="{{ first_name }}" required>
+  <p class="hint">همان اسمی که دوستانتان صدایتان می&zwnj;کنند.</p>
+
+  <label for="about">درباره&zwnj;ی شما</label>
+  <textarea id="about" name="about" rows="4" dir="auto"></textarea>
+  <p class="hint">کار، شهر، ساعت&zwnj;هایی که معمولاً در دسترس نیستید، چیزهایی که دوستانتان زیاد می&zwnj;پرسند.</p>
+
+  <label for="style">طرز نوشتن شما</label>
+  <textarea id="style" name="style" rows="4" dir="auto"></textarea>
+  <p class="hint">کوتاه یا مفصل؟ رسمی یا خودمانی؟ اهل شکلک هستید؟ یکی دو جمله کافی است.</p>
+
+  <label for="never">کارهایی که منشی هرگز نباید بکند</label>
+  <textarea id="never" name="never" rows="3" dir="auto"></textarea>
+  <p class="hint">مثلاً قول دادن، قرار گذاشتن یا حرف زدن درباره&zwnj;ی پول.</p>
+
+  <button class="btn">ذخیره و ادامه</button>
+</form>
+{% endblock %}

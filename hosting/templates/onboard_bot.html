@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}ساخت ربات | منشی تلگرام{% endblock %}
+{% block content %}
+<p class="stage">مرحله&zwnj;ی ۲ از ۴</p>
+{% if not bot_username %}
+<h1>ربات شخصی&zwnj;تان را بسازید</h1>
+<p class="lead">منشی از طریق یک ربات تلگرام که مال خود شماست پاسخ می&zwnj;دهد. دکمه&zwnj;ی زیر تلگرام را باز می&zwnj;کند؛ آنجا ساخت ربات را تأیید کنید و به همین صفحه برگردید.</p>
+<a class="btn big" href="{{ managed_link }}">ساخت ربات با یک لمس</a>
+<p class="wait" data-poll-bot="attach" aria-live="polite">منتظر ساخته شدن ربات هستیم&hellip; این صفحه خودش به&zwnj;روز می&zwnj;شود.</p>
+<details class="panel"{% if err %} open{% endif %}>
+  <summary>توکن دارم</summary>
+  <form method="post" action="/onboard/bot/token">
+    <label for="token">توکن رباتی که در <bdi>@BotFather</bdi> ساخته&zwnj;اید</label>
+    <input id="token" name="token" type="text" dir="ltr" autocomplete="off" spellcheck="false" required>
+    <p class="hint">توکن را فقط اینجا وارد کنید و برای کسی نفرستید.</p>
+    <button class="btn">ثبت توکن</button>
+  </form>
+</details>
+{% elif needs_secretary %}
+<h1>یک قدم مانده</h1>
+<p class="lead">ربات <bdi dir="ltr">@{{ bot_username }}</bdi> ساخته شد. برای اینکه بتواند از طرف شما پاسخ بدهد، این گزینه را در تلگرام روشن کنید:</p>
+<ol class="steps compact">
+  <li><span>در <a href="https://t.me/BotFather"><bdi>@BotFather</bdi></a> ربات را باز کنید</span></li>
+  <li><span><bdi dir="ltr">Bot Settings</bdi></span></li>
+  <li><span><bdi dir="ltr">Secretary Mode</bdi> را روشن کنید</span></li>
+</ol>
+<p class="wait" data-poll-bot="secretary" aria-live="polite">بعد از روشن کردن، این صفحه خودش به&zwnj;روز می&zwnj;شود.</p>
+<a class="btn quiet" href="/onboard/bot">بررسی دوباره</a>
+{% else %}
+<h1>ربات آماده است</h1>
+<p class="lead">ربات <bdi dir="ltr">@{{ bot_username }}</bdi> به حساب شما وصل شد.</p>
+<a class="btn" href="/account">ادامه</a>
+{% endif %}
+{% endblock %}

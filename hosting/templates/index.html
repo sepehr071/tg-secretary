@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block main_class %}page wide{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-text">
+    <h1>وقتی دستتان بند است، منشی جواب پیام&zwnj;ها را می&zwnj;دهد</h1>
+    <p class="lead">یک ربات تلگرام که به پیام&zwnj;های خصوصی شما، با لحن خودتان و از طرف خودتان، پاسخ می&zwnj;دهد. شما انتخاب می&zwnj;کنید به کدام چت&zwnj;ها دسترسی داشته باشد و هر پاسخی که می&zwnj;فرستد را در همان چت می&zwnj;بینید.</p>
+    {% if user %}
+    <a class="btn" href="/account">رفتن به حساب کاربری</a>
+    {% else %}
+    <a class="btn" href="/login">ورود با تلگرام</a>
+    {% endif %}
+  </div>
+  <figure class="chat" aria-label="نمونه&zwnj;ی یک گفتگو">
+    <p class="bubble in">سلام، فردا عصر وقت داری یه سر بزنیم به نمایشگاه؟</p>
+    <p class="bubble out">سلام! فردا تا شش سر کارم، از هفت به بعد آزادم. هفت خوبه؟</p>
+    <figcaption>پاسخ منشی، با لحن شما، چند ثانیه بعد</figcaption>
+  </figure>
+</section>
+
+<section class="how">
+  <h2>چطور راه می&zwnj;افتد</h2>
+  <ol class="steps">
+    <li><strong>ورود با تلگرام</strong><span>با حساب تلگرام خودتان وارد می&zwnj;شوید؛ رمز جدیدی لازم نیست.</span></li>
+    <li><strong>ساخت ربات</strong><span>با یک لمس، ربات شخصی&zwnj;تان در تلگرام ساخته می&zwnj;شود.</span></li>
+    <li><strong>معرفی خودتان</strong><span>چند خط درباره&zwnj;ی خودتان و طرز حرف زدنتان می&zwnj;نویسید.</span></li>
+    <li><strong>وصل کردن</strong><span>در تنظیمات تلگرام ربات را انتخاب می&zwnj;کنید و منشی کارش را شروع می&zwnj;کند.</span></li>
+  </ol>
+</section>
+{% endblock %}
