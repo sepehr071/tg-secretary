@@ -50,9 +50,12 @@ async def check_db() -> None:
     await db.put_oauth_state("st", "ver")
     assert await db.pop_oauth_state("st") == "ver"
     assert await db.pop_oauth_state("st") is None         # one-time
+    await db._write("INSERT INTO oauth_states VALUES ('old', 'v', 1)")
+    assert await db.pop_oauth_state("old") is None        # expired
 
     tid = await db.create_tenant(10)
     assert (await db.get_tenant(tid))["status"] == "draft"
+    await db.update_tenant(tid)                           # no fields: no-op, not a SQL error
     assert (await db.get_tenant_by_owner(10))["id"] == tid
 
     await db.set_tenant_bot(tid, 555, "ali_bot", managed=False)
@@ -144,6 +147,20 @@ async def check_oidc() -> None:
             raise AssertionError(f"accepted {bad}")
         except ValueError:
             pass
+    for bad in ("x.y.z", _jwt([1]), _jwt({**good, "exp": None}), _jwt({**good, "exp": "soon"})):
+        try:
+            oidc.claims_from_id_token(bad, now=1000)
+            raise AssertionError(f"accepted {bad}")
+        except ValueError:
+            pass
+    oidc.TRANSPORT = httpx.MockTransport(lambda r: httpx.Response(200, json={"access_token": "a"}))
+    try:
+        await oidc.exchange("c", "v")
+        raise AssertionError("missing id_token must raise")
+    except ValueError:
+        pass
+    finally:
+        oidc.TRANSPORT = None
 
 
 PM2_CALLS: list[list[str]] = []
@@ -160,13 +177,21 @@ def fake_run(args, **kw):
 async def check_provisioning() -> None:
     pm2.RUN = fake_run
     or_calls = []
+    or_state = {"limit": 0.0, "patches": [], "fail_patch": False}   # patches = successful limit PATCHes
 
     def or_handler(req: httpx.Request) -> httpx.Response:
-        or_calls.append((req.method, json.loads(req.content or b"{}")))
+        body = json.loads(req.content or b"{}")
+        or_calls.append((req.method, body))
         if req.method == "POST":
+            or_state["limit"] = body["limit"]
             return httpx.Response(200, json={"key": "sk-or-v1-t", "data": {"hash": "hk"}})
         if req.method == "GET":
-            return httpx.Response(200, json={"data": {"limit": 3.0, "usage": 0, "limit_remaining": 3.0}})
+            return httpx.Response(200, json={"data": {"limit": or_state["limit"], "usage": 0}})
+        if "limit" in body:
+            if or_state["fail_patch"]:
+                return httpx.Response(500, json={"error": {"message": "down"}})
+            or_state["limit"] = body["limit"]
+            or_state["patches"].append(body)
         return httpx.Response(200, json={"data": {}})
 
     openrouter.TRANSPORT = httpx.MockTransport(or_handler)
@@ -189,22 +214,26 @@ async def check_provisioning() -> None:
     assert "I study law" in about and "never promise money" in about
     assert (await db.get_tenant(tid))["profile_done"] == 1
 
-    # Activation: pm2 fails the first time -> key kept, retry reuses it.
+    # Payment applied once even when activation fails: pm2 down on first top_up, retry same ref.
     def failing_run(args, **kw):
         import subprocess
         PM2_CALLS.append(args[1:])
         return subprocess.CompletedProcess(args, 1, stdout="", stderr="boom")
+    await db.update_tenant(tid, status="awaiting_credit")
     pm2.RUN = failing_run
     try:
-        await tenants.activate(tid, 3.0)
+        await tenants.top_up(tid, 3.0, "300k", "", 1, "r-1")
         raise AssertionError("pm2 failure must raise")
     except pm2.Pm2Error:
         pass
     t = await db.get_tenant(tid)
     assert t["or_key_hash"] == "hk" and t["status"] != "running"
+    assert (await db.get_payment("r-1"))["applied"] == 1
+    assert or_calls[0] == ("POST", {"name": "tgs-%d" % tid, "limit": 0.0, "limit_reset": None}), or_calls
     pm2.RUN = fake_run
-    await tenants.activate(tid, 3.0)
+    assert await tenants.top_up(tid, 3.0, "300k", "", 1, "r-1") is False       # retry: no new row
     assert [m for m, _ in or_calls].count("POST") == 1, or_calls      # one key only
+    assert or_state["patches"] == [{"limit": 3.0}], or_state          # no second credit
     assert (await db.get_tenant(tid))["status"] == "running"
     start = next(c for c in PM2_CALLS if c[0] == "start")
     assert "tgs-%d" % tid in start and "--cwd" in start and "-m" in start and "secretary" in start
@@ -214,8 +243,47 @@ async def check_provisioning() -> None:
     # Top-up: limit 3 + 2 = 5, double submit ignored.
     assert await tenants.top_up(tid, 2.0, "200k", "", 1, "r-9") is True
     assert await tenants.top_up(tid, 2.0, "200k", "", 1, "r-9") is False
-    patches = [b for m, b in or_calls if m == "PATCH"]
-    assert patches == [{"limit": 5.0}], patches
+    assert or_state["patches"] == [{"limit": 3.0}, {"limit": 5.0}], or_state
+
+    # OpenRouter PATCH fails first: raises, retry applies old+amount exactly once.
+    await db.upsert_user(22, "Neda", None)
+    t3 = await db.create_tenant(22)
+    await db.set_tenant_bot(t3, 888, "neda_bot", managed=False)
+    or_state["fail_patch"] = True
+    try:
+        await tenants.top_up(t3, 4.0, "400k", "", 1, "r-fail")
+        raise AssertionError("PATCH failure must raise")
+    except openrouter.OpenRouterError:
+        pass
+    assert (await db.get_payment("r-fail"))["applied"] == 0
+    or_state["fail_patch"] = False
+    n = len(or_state["patches"])
+    await tenants.top_up(t3, 4.0, "400k", "", 1, "r-fail")
+    assert or_state["patches"][n:] == [{"limit": 4.0}], or_state
+    assert (await db.get_payment("r-fail"))["applied"] == 1
+    await tenants.top_up(t3, 4.0, "400k", "", 1, "r-fail")
+    assert len(or_state["patches"]) == n + 1
+
+    # Unknown tenant / no bot: ValueError, no payment row.
+    for bad in (9999, (await db.create_tenant(23))):
+        try:
+            await tenants.top_up(bad, 1.0, "", "", 1, "r-bad%d" % bad)
+            raise AssertionError("must refuse")
+        except ValueError:
+            assert await db.get_payment("r-bad%d" % bad) is None
+
+    # pm2.start on an existing process restarts instead of double-starting.
+    def listed_run(args, **kw):
+        import subprocess
+        PM2_CALLS.append(args[1:])
+        out = json.dumps([{"name": "tgs-5", "pm2_env": {"status": "online", "restart_time": 0}}]) \
+            if args[1] == "jlist" else ""
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+    pm2.RUN = listed_run
+    PM2_CALLS.clear()
+    pm2.start(5, tenants.tenant_dir(tid))
+    assert ["restart", "tgs-5"] in PM2_CALLS and not any(c[0] == "start" for c in PM2_CALLS), PM2_CALLS
+    pm2.RUN = fake_run
 
     # Another user cannot claim sara_bot.
     await db.upsert_user(21, "X", None)

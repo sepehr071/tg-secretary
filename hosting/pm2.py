@@ -26,6 +26,10 @@ def _pm2(*args: str) -> str:
 
 
 def start(tid: int, cwd: Path) -> None:
+    if name(tid) in status():  # `pm2 start` would spawn a duplicate
+        restart(tid)
+        _pm2("save")
+        return
     python = settings.repo_root / ".venv" / "bin" / "python"
     _pm2("start", str(python), "--name", name(tid), "--interpreter", "none", "--cwd", str(cwd),
          "--max-memory-restart", "300M", "--restart-delay", "5000", "--time",

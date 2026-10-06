@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import secrets
 import shutil
@@ -12,6 +13,9 @@ from dotenv import set_key
 
 from . import db, openrouter, pm2, tg
 from .config import settings
+
+log = logging.getLogger(__name__)
+_locks: dict[int, asyncio.Lock] = {}
 
 
 def tenant_dir(tid: int) -> Path:
@@ -63,15 +67,30 @@ async def save_profile(tid: int, first_name: str, about: str, style: str, never:
     await db.update_tenant(tid, profile_done=1)
 
 
-async def activate(tid: int, credit_usd: float) -> None:
-    """Idempotent: a retry after a partial failure reuses the key, port and secret."""
+async def ensure_key(tid: int) -> str:
+    """Create the tenant's zero-limit OpenRouter key once; returns its hash."""
     t = await db.get_tenant(tid)
     if t is None:
         raise ValueError(f"no tenant {tid}")
-    if not t["or_key_hash"]:
-        key, key_hash = await openrouter.create_key(pm2.name(tid), credit_usd)
-        write_env(tid, {"OPENROUTER_API_KEY": key})  # shown once: persist before anything else
-        await db.update_tenant(tid, or_key_hash=key_hash)
+    if t["or_key_hash"]:
+        return t["or_key_hash"]
+    key, key_hash = await openrouter.create_key(pm2.name(tid), 0.0)
+    write_env(tid, {"OPENROUTER_API_KEY": key})  # shown once: persist before anything else
+    await db.update_tenant(tid, or_key_hash=key_hash)
+    return key_hash
+
+
+async def add_credit(tid: int, amount_usd: float) -> None:
+    h = await ensure_key(tid)
+    info = await openrouter.get_key(h)
+    await openrouter.set_limit(h, float(info.get("limit") or 0) + amount_usd)
+    await db.update_tenant(tid, warned_at_limit=None)
+
+
+async def activate(tid: int) -> None:
+    """Idempotent: a retry after a partial failure reuses the key, port and secret."""
+    await ensure_key(tid)
+    t = await db.get_tenant(tid)
     port = await db.alloc_port(tid)
     secret = t["proxy_secret"] or secrets.token_urlsafe(32)
     write_env(tid, {"DASHBOARD_PORT": str(port), "DASHBOARD_PROXY_SECRET": secret})
@@ -86,16 +105,21 @@ async def activate(tid: int, credit_usd: float) -> None:
 
 async def top_up(tid: int, amount_usd: float, paid_text: str, note: str,
                  admin_tg_id: int, client_ref: str) -> bool:
-    if not await db.add_payment(tid, amount_usd, paid_text, note, admin_tg_id, client_ref):
-        return False
+    """True = new payment row. Safe to retry with the same client_ref after any failure:
+    credit is applied once (payments.applied) and activation is re-attempted."""
     t = await db.get_tenant(tid)
-    if t and t["or_key_hash"]:
-        info = await openrouter.get_key(t["or_key_hash"])
-        await openrouter.set_limit(t["or_key_hash"], float(info.get("limit") or 0) + amount_usd)
-        await db.update_tenant(tid, warned_at_limit=None)
-    if t and t["status"] == "awaiting_credit":
-        await activate(tid, amount_usd)
-    return True
+    if t is None or not t["bot_id"]:
+        raise ValueError("tenant not ready")
+    async with _locks.setdefault(tid, asyncio.Lock()):
+        inserted = await db.add_payment(tid, amount_usd, paid_text, note, admin_tg_id, client_ref)
+        p = await db.get_payment(client_ref)
+        if p and not p["applied"]:
+            await add_credit(tid, p["amount_usd"])
+            await db.mark_payment_applied(client_ref)
+        t = await db.get_tenant(tid)
+        if t and t["status"] == "awaiting_credit" and t["profile_done"]:
+            await activate(tid)
+    return inserted
 
 
 async def delete(tid: int) -> None:
@@ -108,7 +132,12 @@ async def delete(tid: int) -> None:
     if t["managed"] and t["bot_id"]:
         # Kill the old token so nothing we stored can still drive the bot.
         await tg.call(settings.platform_bot_token, "replaceManagedBotToken", user_id=t["bot_id"])
-    shutil.rmtree(tenant_dir(tid), ignore_errors=True)
+    try:
+        shutil.rmtree(tenant_dir(tid))
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        log.warning("could not remove %s (holds secrets): %s", tenant_dir(tid), e)
     await db.release_tenant(tid)
 
 

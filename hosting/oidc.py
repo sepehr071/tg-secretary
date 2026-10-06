@@ -48,14 +48,20 @@ def claims_from_id_token(id_token: str, now: float) -> dict[str, Any]:
     try:
         payload = id_token.split(".")[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-    except (IndexError, ValueError) as e:
+        if not isinstance(claims, dict):
+            raise ValueError("payload is not an object")
+    except (IndexError, ValueError, AttributeError, TypeError) as e:
         raise ValueError("malformed id_token") from e
     aud = claims.get("aud")
     if claims.get("iss") != ISSUER:
         raise ValueError("wrong issuer")
     if settings.oidc_client_id not in (aud if isinstance(aud, list) else [aud]):
         raise ValueError("wrong audience")
-    if float(claims.get("exp", 0)) <= now:
+    try:
+        expired = float(claims.get("exp")) <= now
+    except (TypeError, ValueError) as e:
+        raise ValueError("bad exp") from e
+    if expired:
         raise ValueError("expired")
     if "id" not in claims:
         raise ValueError("no telegram id")
@@ -70,4 +76,10 @@ async def exchange(code: str, verifier: str) -> dict[str, Any]:
         })
     if r.status_code != 200:
         raise ValueError(f"token endpoint HTTP {r.status_code}")
-    return claims_from_id_token(r.json()["id_token"], time.time())
+    try:
+        id_token = r.json()["id_token"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise ValueError("token response has no id_token") from e
+    if not isinstance(id_token, str):
+        raise ValueError("token response has no id_token")
+    return claims_from_id_token(id_token, time.time())

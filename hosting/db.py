@@ -47,7 +47,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_live_tenant ON tenants(owner_tg_id) WHERE 
 CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, amount_usd REAL NOT NULL,
     paid_text TEXT, note TEXT, admin_tg_id INTEGER NOT NULL,
-    client_ref TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL
+    client_ref TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL,
+    applied INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -145,7 +146,14 @@ async def put_oauth_state(state: str, verifier: str) -> None:
 
 
 async def pop_oauth_state(state: str) -> str | None:
-    row = await _one("SELECT verifier FROM oauth_states WHERE state=? AND expires_at>?", state, int(time.time()))
+    now = int(time.time())
+    if sqlite3.sqlite_version_info >= (3, 35):  # atomic: two callbacks can't both consume a state
+        cur = await _db().execute(
+            "DELETE FROM oauth_states WHERE state=? AND expires_at>? RETURNING verifier", (state, now))
+        row = await cur.fetchone()
+        await _db().commit()
+        return row["verifier"] if row else None
+    row = await _one("SELECT verifier FROM oauth_states WHERE state=? AND expires_at>?", state, now)
     await _write("DELETE FROM oauth_states WHERE state=?", state)
     return row["verifier"] if row else None
 
@@ -178,6 +186,8 @@ async def update_tenant(tid: int, **fields: Any) -> None:
     bad = fields.keys() - UPDATABLE
     if bad:
         raise ValueError(f"not updatable: {bad}")
+    if not fields:
+        return
     sets = ", ".join(f"{k}=?" for k in fields)
     await _write(f"UPDATE tenants SET {sets} WHERE id=?", *fields.values(), tid)
 
@@ -194,16 +204,22 @@ async def set_tenant_bot(tid: int, bot_id: int, bot_username: str, managed: bool
 
 
 async def alloc_port(tid: int) -> int:
-    t = await get_tenant(tid)
-    if t and t["dashboard_port"]:
-        return t["dashboard_port"]
-    async with _db().execute("SELECT dashboard_port FROM tenants WHERE dashboard_port IS NOT NULL") as cur:
-        used = {r[0] for r in await cur.fetchall()}
-    for port in range(settings.port_range_start, settings.port_range_end + 1):
-        if port not in used:
+    for _ in range(5):  # UNIQUE(dashboard_port) loses a race -> rescan
+        t = await get_tenant(tid)
+        if t and t["dashboard_port"]:
+            return t["dashboard_port"]
+        async with _db().execute("SELECT dashboard_port FROM tenants WHERE dashboard_port IS NOT NULL") as cur:
+            used = {r[0] for r in await cur.fetchall()}
+        port = next((p for p in range(settings.port_range_start, settings.port_range_end + 1)
+                     if p not in used), None)
+        if port is None:
+            raise RuntimeError("no free dashboard port")
+        try:
             await _write("UPDATE tenants SET dashboard_port=? WHERE id=?", port, tid)
             return port
-    raise RuntimeError("no free dashboard port")
+        except sqlite3.IntegrityError:
+            continue
+    raise RuntimeError("could not allocate a dashboard port")
 
 
 async def release_tenant(tid: int) -> None:
@@ -222,3 +238,11 @@ async def add_payment(tenant_id: int, amount_usd: float, paid_text: str, note: s
     except sqlite3.IntegrityError:
         return False
     return True
+
+
+async def get_payment(client_ref: str) -> dict[str, Any] | None:
+    return await _one("SELECT * FROM payments WHERE client_ref=?", client_ref)
+
+
+async def mark_payment_applied(client_ref: str) -> None:
+    await _write("UPDATE payments SET applied=1 WHERE client_ref=?", client_ref)
