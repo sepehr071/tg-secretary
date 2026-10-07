@@ -1,82 +1,169 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, orb, avatar %}
 {% block content %}
-<h1 class="sr-only">{{ "Status"|t }}</h1>
+<style>
+  .home-hello { padding: 8px 4px 12px; font-size: 26px; font-weight: 700; line-height: 1.5; margin: 0; }
+  .hero .switch-form { margin: 0; flex: none; }
+  .hero-sub { margin: 0; color: var(--muted); font-size: 14.5px; text-wrap: pretty; }
+  .hsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; counter-reset: n; }
+  .hsteps li { display: flex; gap: 12px; align-items: flex-start; counter-increment: n; padding-top: 0; }
+  .hsteps li::before {
+    content: counter(n); flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(224, 137, 42, .14); color: var(--warn); font-weight: 700;
+  }
+  [lang="fa"] .hsteps li::before { content: counter(n, persian); }
+  .hsteps li > span, .hsteps li > div { padding-top: 2px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .copy-handle { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px;
+    border: 1px dashed var(--accent-line); background: var(--glass); font-weight: 700; color: var(--accent); }
+  .hero .btn.primary { min-height: 52px; }
+  .banner, .nudge { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 22px; margin: 0 0 16px; color: var(--ink); text-decoration: none; }
+  .banner { border: 1px solid rgba(224, 137, 42, .3); background: rgba(255, 244, 228, .7); backdrop-filter: blur(20px); }
+  .nudge { border: 1px solid var(--glass-line); background: rgba(255, 255, 255, .55); backdrop-filter: blur(24px); box-shadow: var(--shadow); }
+  .banner:hover { color: var(--ink); }
+  .ico-box { flex: none; width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .banner .ico-box { background: rgba(224, 137, 42, .16); color: var(--warn); }
+  .banner .grow, .nudge .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.6; }
+  .banner .grow b { font-size: 16px; }
+  .banner .grow small, .nudge .grow small { font-size: 13px; }
+  .banner > .ic:last-child { color: var(--warn); }
+  .nudge .btn { flex: none; min-height: 40px; background: var(--accent-soft); border: 0; color: var(--accent); font-weight: 700; border-radius: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 16px; }
+  .stats .card { margin: 0; padding: 16px; border-radius: 22px; display: flex; flex-direction: column; gap: 2px; }
+  .stats .lab { font-size: 13px; color: var(--muted); }
+  .stat-big { font-size: 30px; font-weight: 700; line-height: 1.3; }
+  .credit-line { font-size: 15px; font-weight: 700; line-height: 1.5; }
+  .bar { height: 8px; margin: 6px 0 2px; border-radius: 99px; background: rgba(28, 27, 46, .08); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #6b52e8, #5fc9ff); }
+  .bar.low > i { background: linear-gradient(90deg, #f0645a, #ff8a7a); }
+  .pair { align-items: flex-start; }
+  .pair .grow { gap: 6px; }
+  .pair .head { display: flex; justify-content: space-between; gap: 8px; }
+  .pair .head a { color: var(--ink); font-weight: 700; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pair .bubble-them, .pair .bubble-me { max-width: 92%; margin: 0; padding: 6px 12px; font-size: 14px; border-radius: 14px; }
+  .pair .bubble-them { background: rgba(28, 27, 46, .05); color: var(--ink-2); border-start-start-radius: 4px; }
+  .pair .bubble-me { background: var(--accent-soft); color: var(--ink); border-start-end-radius: 4px; display: flex; gap: 6px; align-items: flex-start; }
+  .pair .bubble-me .ic { color: var(--accent); margin-top: 4px; }
+  .pair .row-item { align-items: flex-start; }
+  .tech summary { display: flex; align-items: center; gap: 6px; }
+</style>
+
+<h1 class="home-hello">{{ "Hi {name}"|t|replace("{name}", first_name) }}</h1>
 {% set c = connections[0] if connections else none %}
-<section class="verdict {{ 'is-ok' if health == 'ok' else ('is-paused' if health == 'paused' else 'is-bad') }}" aria-labelledby="verdict-title">
-  {% if health == "ok" %}
-    <h2 id="verdict-title">{{ "Your secretary is on and answering."|t }}</h2>
-    <p>{% if approval %}{{ "Every reply waits for your OK in Drafts before it goes out."|t }}
-       {% else %}{{ "When someone messages you and you don't answer, it replies for you."|t }}{% endif %}</p>
-  {% elif health == "paused" %}
-    <h2 id="verdict-title">{{ "Your secretary is paused."|t }}</h2>
-    <p>{{ "Nothing is sent for you until you turn it back on."|t }}</p>
-    <p><a class="btn" href="{{ root }}/settings">{{ "Turn it back on in Settings"|t }}</a></p>
-  {% elif health == "no_credit" %}
-    <h2 id="verdict-title">{{ "Your credit has run out."|t }}</h2>
-    <p>{{ "Replies stop until you add credit."|t }}</p>
-    {% if hosted %}<p><a class="btn" href="/account">{{ "Add credit"|t }}</a></p>{% endif %}
-  {% else %}
-    <h2 id="verdict-title">{{ "Your secretary can't answer yet."|t }}</h2>
-    {% if health == "not_connected" %}
-    <p>{{ "Connect it to your Telegram account:"|t }}</p>
-    <ol class="steps">
-      <li>{{ "Open Telegram and go to Settings."|t }}</li>
-      <li>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</li>
-      <li>{{ "Enter this bot's username and add it:"|t }} <bdi class="handle">@{{ bot_username }}</bdi></li>
-      <li>{{ "Turn on permission to reply to messages, then come back here."|t }}</li>
-    </ol>
-    {% elif health == "disabled" %}
-    <p>{{ "The bot is connected but switched off in Telegram:"|t }}</p>
-    <ol class="steps">
-      <li>{{ "Open Telegram and go to Settings."|t }}</li>
-      <li>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</li>
-      <li>{{ "Select"|t }} <bdi class="handle">@{{ bot_username }}</bdi> {{ "and turn it on."|t }}</li>
-    </ol>
-    {% else %}
-    <p>{{ "The bot is connected but isn't allowed to send replies:"|t }}</p>
-    <ol class="steps">
-      <li>{{ "Open Telegram and go to Settings."|t }}</li>
-      <li>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</li>
-      <li>{{ "Select"|t }} <bdi class="handle">@{{ bot_username }}</bdi> {{ "and turn on permission to reply to messages."|t }}</li>
-    </ol>
+{% set tone = {"ok": "ok", "paused": "paused", "no_credit": "danger"}.get(health, "warn") %}
+<section class="card hero tone-{{ tone }}" aria-labelledby="hero-title">
+  <div class="hero-head">
+    {{ orb(orb_state, "lg") }}
+    <div class="hero-text">
+      <span class="hero-kicker">{% if health == "ok" %}{{ "It's on"|t }}{% elif health == "paused" %}{{ "It's off"|t }}{% elif health == "no_credit" %}{{ "Out of credit"|t }}{% else %}{{ "One step left"|t }}{% endif %}</span>
+      <h2 class="hero-title" id="hero-title" style="margin:0">
+        {%- if health == "ok" %}{{ "Your secretary is answering messages"|t }}
+        {%- elif health == "paused" %}{{ "Your secretary isn't answering for now"|t }}
+        {%- elif health == "no_credit" %}{{ "Your secretary is waiting for credit"|t }}
+        {%- elif health == "not_connected" %}{{ "Connect your secretary to Telegram"|t }}
+        {%- elif health == "disabled" %}{{ "Your secretary is switched off in Telegram"|t }}
+        {%- else %}{{ "Your secretary isn't allowed to reply"|t }}{% endif -%}
+      </h2>
+    </div>
+    {% if health in ("ok", "paused") %}
+    <form class="switch-form" method="post" action="{{ root }}/settings/master" data-autosave id="master-form"
+          data-saved="{{ 'Saved'|t }}" data-failed="{{ 'Couldn\'t save. Try again.'|t }}">
+      <input type="checkbox" role="switch" class="switch switch--lg" name="enabled" value="on"{{ ' checked' if health == 'ok' }}
+             aria-label="{{ 'Turn the secretary on or off'|t }}">
+      <button data-nojs-submit class="btn-sm">{{ "Save changes"|t }}</button>
+    </form>
     {% endif %}
+  </div>
+  <p class="hero-sub">
+    {%- if health == "ok" %}{% if approval %}{{ "Every reply is shown to you first and goes out after you approve it."|t }}{% else %}{{ "If you don't reply within {x}, the secretary answers in your voice."|t|replace("{x}", delay_phrase) }}{% endif %}
+    {%- elif health == "paused" %}{{ "Until you switch it back on, nothing is sent for you."|t }}
+    {%- elif health == "no_credit" %}{{ "Until you add credit the secretary won't answer. Your settings stay as they are."|t }}
+    {%- elif health == "not_connected" %}{{ "Three simple things in Telegram, about a minute:"|t }}
+    {%- elif health == "disabled" %}{{ "The bot is connected but switched off in Telegram:"|t }}
+    {%- else %}{{ "The bot is connected but isn't allowed to send replies:"|t }}{% endif -%}
+  </p>
+
+  {% if health == "not_connected" %}
+  <ol class="hsteps">
+    <li><span>{{ "Open Telegram and go to Settings."|t }}</span></li>
+    <li><span>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</span></li>
+    <li><div><span>{{ "Enter this name and turn on permission to reply to messages:"|t }}</span>
+      <button type="button" class="copy-handle" data-copy="@{{ bot_username }}">
+        <bdi dir="ltr">@{{ bot_username }}</bdi>{{ icon("copy", 18) }}</button></div></li>
+  </ol>
+  <a class="btn primary" href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener">{{ icon("send", 20) }}{{ "Open Telegram"|t }}</a>
+  {% elif health == "disabled" %}
+  <ol class="hsteps">
+    <li><span>{{ "Open Telegram and go to Settings."|t }}</span></li>
+    <li><span>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</span></li>
+    <li><span>{{ "Select"|t }} <bdi class="handle">@{{ bot_username }}</bdi> {{ "and turn it on."|t }}</span></li>
+  </ol>
+  {% elif health == "no_reply" %}
+  <ol class="hsteps">
+    <li><span>{{ "Open Telegram and go to Settings."|t }}</span></li>
+    <li><span>{{ "Open Chat Automation (on some phones: Telegram Business, then Chatbots)."|t }}</span></li>
+    <li><span>{{ "Select"|t }} <bdi class="handle">@{{ bot_username }}</bdi> {{ "and turn on permission to reply to messages."|t }}</span></li>
+  </ol>
+  {% elif health == "no_credit" and hosted %}
+  <a class="btn primary" href="/account">{{ icon("add_card", 20) }}{{ "Add credit"|t }}</a>
   {% endif %}
   {% if c and c.missing and health in ("ok", "paused", "no_credit") %}
-  <p class="aside">{{ "Missing permission in Telegram:"|t }} {{ c.missing|map("t")|join("، " if lang == "fa" else ", ") }}.
+  <p class="hero-sub">{{ "Missing permission in Telegram:"|t }} {{ c.missing|map("t")|join("، " if lang == "fa" else ", ") }}.
      {{ "Turn it on under Chat Automation for the best results."|t }}</p>
   {% endif %}
 </section>
 
 {% if stats.pending %}
-<a class="callout" href="{{ root }}/drafts">
-  <span><b>{{ stats.pending|num }} {{ "replies are waiting for your OK"|t }}</b>
-  <small>{{ "Nothing is sent until you check them."|t }}</small></span>
-  <span class="btn primary">{{ "Review drafts"|t }}</span>
+<a class="banner" href="{{ root }}/drafts">
+  <span class="ico-box">{{ icon("hourglass", 24) }}</span>
+  <span class="grow"><b>{{ stats.pending|num }} {{ "replies are waiting for your OK"|t }}</b>
+    <small>{{ "Nothing is sent until you check them."|t }}</small></span>
+  {{ icon("chevron_left", 22) }}
 </a>
 {% endif %}
 
-<dl class="facts">
-  <div>
-    <dt>{{ "Credit left"|t }}</dt>
-    <dd>{% if credit is none %}<span class="muted">{{ "unavailable"|t }}</span>
-      {% elif credit.limit_remaining is none %}{{ "no limit, used"|t }} ${{ "%.2f"|format(credit.usage or 0)|num }}
-      {% else %}${{ "%.2f"|format(credit.limit_remaining)|num }} {{ "left"|t }}{% endif %}</dd>
+<div class="stats">
+  <div class="card">
+    <span class="lab">{{ "Today"|t }}</span>
+    <span class="stat-big">{{ stats.replies_today|num }}</span>
+    <span class="lab">{{ "replies sent for you"|t }}</span>
   </div>
-  <div><dt>{{ "Replies today"|t }}</dt><dd>{{ stats.replies_today|num }}</dd></div>
-  <div><dt>{{ "Replies this week"|t }}</dt><dd>{{ stats.replies_week|num }}</dd></div>
-  <div><dt>{{ "People who messaged"|t }}</dt><dd>{{ stats.total_chats|num }}</dd></div>
-</dl>
+  <div class="card">
+    <span class="lab">{{ "Credit"|t }}</span>
+    {% if credit is none %}
+    <span class="credit-line muted">{{ "unavailable"|t }}</span>
+    {% elif credit.unlimited %}
+    <span class="credit-line">{{ "No spending limit"|t }}</span>
+    <span class="lab">{{ "{n} dollars used"|t|replace("{n}", credit.used|num) }}</span>
+    {% else %}
+    <span class="credit-line">{% if credit.replies %}{{ "about {n} more replies"|t|replace("{n}", credit.replies|num) }}{% else %}{{ "Used up"|t }}{% endif %}</span>
+    <div class="bar{{ ' low' if credit.pct < 10 }}" role="img" aria-label="{{ credit.pct|num }}%"><i style="width: {{ credit.pct }}%"></i></div>
+    <span class="lab">{{ "{r} of {t} dollars"|t|replace("{r}", credit.left|num)|replace("{t}", credit.total|num) }}</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if untagged and health in ("ok", "paused") %}
+<div class="nudge">
+  <span class="ico-box">{{ icon("person_search", 24) }}</span>
+  <span class="grow"><b>{{ "{n} people have no group yet"|t|replace("{n}", untagged|num) }}</b>
+    <small>{{ "Tell me who they are so replies get the right tone."|t }}</small></span>
+  <a class="btn" href="{{ root }}/contacts?filter=unknown">{{ "Choose"|t }}</a>
+</div>
+{% endif %}
 
 <section class="card">
   <h2>{{ "Latest replies"|t }}</h2>
   {% if replies %}
-  <ul class="feed">
+  <ul class="list">
     {% for r in replies %}
-    <li>
-      <div class="feed-head"><a href="{{ root }}/contacts/{{ r.chat_id }}" dir="auto">{{ r.name }}</a>
-        <time>{{ r.created_at|ts }}</time></div>
-      <p dir="auto">{{ r.content[:160] }}{% if r.content|length > 160 %}…{% endif %}</p>
-    </li>
+    <li><div class="row-item pair">
+      {{ avatar(r.name, r.rel) }}
+      <div class="grow">
+        <div class="head"><a href="{{ root }}/contacts/{{ r.chat_id }}" dir="auto">{{ r.name }}</a><time>{{ r.created_at|ago }}</time></div>
+        {% if r.them %}<div class="bubble-them" dir="auto">{{ r.them[:160] }}{% if r.them|length > 160 %}…{% endif %}</div>{% endif %}
+        <div class="bubble-me" dir="auto">{{ icon("sparkle", 15) }}<span>{{ r.reply[:160] }}{% if r.reply|length > 160 %}…{% endif %}</span></div>
+      </div>
+    </div></li>
     {% endfor %}
   </ul>
   {% else %}
@@ -85,9 +172,18 @@
 </section>
 
 <details class="tech">
-  <summary>{{ "Technical details"|t }}</summary>
+  <summary>{{ icon("code", 18) }}{{ "Technical details"|t }}</summary>
   <p>{{ "Bot"|t }} <bdi>@{{ bot_username }}</bdi> · {{ "running for"|t }} {{ uptime }} · {{ "model"|t }} <code>{{ model }}</code><br>
+     {{ "Connections"|t }}: {{ connections|length|num }} ·
      {{ "Ask me before sending"|t }}: {{ ("on" if approval else "off")|t }} ·
-     {{ "Hold sensitive messages from close people"|t }}: {{ ("on" if innercircle else "off")|t }}</p>
+     {{ "Hold sensitive messages from close people"|t }}: {{ ("on" if innercircle else "off")|t }}<br>
+     {{ "People who messaged"|t }}: {{ stats.total_chats|num }} · {{ "Replies this week"|t }}: {{ stats.replies_week|num }}</p>
 </details>
+<script>
+  // The hero text depends on the switch, so reload once autosave had time to finish.
+  (function () {
+    var f = document.getElementById("master-form");
+    if (f) f.addEventListener("change", function () { setTimeout(function () { location.reload(); }, 1000); });
+  })();
+</script>
 {% endblock %}

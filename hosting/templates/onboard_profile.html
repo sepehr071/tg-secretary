@@ -1,26 +1,76 @@
 {% extends "base.html" %}
-{% block title %}معرفی شما | منشی تلگرام{% endblock %}
+{% from "_ui.html" import icon, stage %}
+{% block title %}معرفی تو | منشی تلگرام{% endblock %}
+{% block main_class %}page ob-page{% endblock %}
+{% macro seg(name, label, options, current) %}
+<div class="field" role="radiogroup" aria-label="{{ label }}">
+  <b>{{ label }}</b>
+  <div class="seg">
+    {% for value, text in options %}
+    <label><input type="radio" name="{{ name }}" value="{{ value }}"{% if value == current %} checked{% endif %}><span>{{ text }}</span></label>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}
+{% set about_chips = ["دانشجو هستم", "کارمندم", "کار آزاد دارم", "تهران زندگی می‌کنم", "روزها تا ۶ سر کارم", "این روزها سرم شلوغ است", "شب‌ها دیر جواب می‌دهم"] %}
+{% set never_opts = [("promise", "قول بدهد", "handshake"), ("meet", "قرار قطعی بگذارد", "event"), ("money", "درباره‌ی پول حرف بزند", "payments"), ("private", "اطلاعات شخصی من را بگوید", "lock")] %}
 {% block content %}
-<p class="stage">مرحله&zwnj;ی ۲ از ۳</p>
-<h1>خودتان را معرفی کنید</h1>
-<p class="lead">منشی با همین چند خط یاد می&zwnj;گیرد شبیه شما بنویسد. لازم نیست کامل باشد؛ بعداً هم می&zwnj;توانید تغییرش دهید.</p>
-<form class="panel" method="post" action="/onboard/profile">
-  <label for="first_name">اسم کوچک</label>
-  <input id="first_name" name="first_name" type="text" dir="auto" value="{{ first_name }}" required>
-  <p class="hint">همان اسمی که دوستانتان صدایتان می&zwnj;کنند.</p>
+{{ stage(2, "معرفی تو") }}
+<form id="ob" class="ob" method="post" action="/onboard/profile" data-wizard>
+  <div class="bar steps-bar" data-js hidden aria-hidden="true"><span class="on"></span><span></span><span></span><span></span></div>
 
-  <label for="about">درباره&zwnj;ی شما</label>
-  <textarea id="about" name="about" rows="4" dir="auto"></textarea>
-  <p class="hint">کار، شهر، ساعت&zwnj;هایی که معمولاً در دسترس نیستید، چیزهایی که دوستانتان زیاد می&zwnj;پرسند.</p>
+  <div class="card ob-card">
+    <fieldset class="step" data-step="0">
+      <legend>اسمت چیه؟</legend>
+      <p class="muted">همان اسمی که دوستانت صدایت می&zwnj;کنند. منشی خودش را با این اسم معرفی نمی&zwnj;کند؛ فقط می&zwnj;داند تو کیستی.</p>
+      <label class="sr" for="first_name">اسم کوچک</label>
+      <input class="big-input" id="first_name" name="first_name" type="text" dir="auto" value="{{ first_name }}" autocomplete="given-name" required>
+    </fieldset>
 
-  <label for="style">طرز نوشتن شما</label>
-  <textarea id="style" name="style" rows="4" dir="auto"></textarea>
-  <p class="hint">کوتاه یا مفصل؟ رسمی یا خودمانی؟ اهل شکلک هستید؟ یکی دو جمله کافی است.</p>
+    <fieldset class="step" data-step="1">
+      <legend>کمی از خودت بگو</legend>
+      <p class="muted">منشی از این&zwnj;ها در جواب&zwnj;ها استفاده می&zwnj;کند. روی پیشنهادها بزن، یا خودت بنویس.</p>
+      <div class="chips" data-js hidden data-chips-for="about">
+        {% for c in about_chips %}<button type="button" class="chip" data-chip="{{ c }}">{{ icon("add", 16) }}<span>{{ c }}</span></button>{% endfor %}
+      </div>
+      <label class="sr" for="about">درباره&zwnj;ی تو</label>
+      <textarea id="about" name="about" rows="4" dir="auto" placeholder="مثلاً: معلمم، شنبه تا چهارشنبه صبح&zwnj;ها کلاس دارم."></textarea>
+    </fieldset>
 
-  <label for="never">کارهایی که منشی هرگز نباید بکند</label>
-  <textarea id="never" name="never" rows="3" dir="auto"></textarea>
-  <p class="hint">مثلاً قول دادن، قرار گذاشتن یا حرف زدن درباره&zwnj;ی پول.</p>
+    <fieldset class="step" data-step="2">
+      <legend>معمولاً چطور می&zwnj;نویسی؟</legend>
+      <p class="muted">هر کدام را عوض کنی، پیش&zwnj;نمایش پایین هم عوض می&zwnj;شود.</p>
+      {{ seg("tone", "لحن", [("0", "رسمی"), ("1", "معمولی"), ("2", "خودمانی")], "1") }}
+      {{ seg("len", "پیام‌هایت", [("0", "کوتاه"), ("1", "مفصل")], "0") }}
+      {{ seg("emoji", "ایموجی", [("0", "هیچ"), ("1", "کم"), ("2", "زیاد")], "1") }}
+      <div class="preview" data-preview-for="ob" data-previews='{{ previews|tojson }}'>
+        <p class="preview-title">{{ icon("sparkle", 18) }}منشی این&zwnj;طوری جواب می&zwnj;دهد</p>
+        <p class="bubble-them">سلام، فردا عصر وقت داری؟</p>
+        <p class="bubble-me" data-preview-text aria-live="polite">{{ previews["1-0-1"] }}</p>
+      </div>
+      <label for="style">چیز دیگری هم هست؟ <span class="muted">(اختیاری)</span></label>
+      <textarea id="style" name="style" rows="2" dir="auto" placeholder="مثلاً: آخر جمله&zwnj;ها «دمت گرم» می&zwnj;گویم."></textarea>
+    </fieldset>
 
-  <button class="btn">ذخیره و ادامه</button>
+    <fieldset class="step" data-step="3">
+      <legend>منشی هرگز نباید…</legend>
+      <p class="muted">هر کدام را بزنی، منشی از آن دوری می&zwnj;کند و جوابش را به خودت می&zwnj;سپارد.</p>
+      <div class="nevers">
+        {% for key, text, ic in never_opts %}
+        <label class="never"><input type="checkbox" name="never" value="{{ key }}"{% if key in ("promise", "money") %} checked{% endif %}>
+          <span class="n-off">{{ icon(ic, 22) }}</span><span class="n-on">{{ icon("block", 22) }}</span><span>{{ text }}</span></label>
+        {% endfor %}
+      </div>
+      <label class="sr" for="never_text">چیز دیگری؟</label>
+      <textarea id="never_text" name="never_text" rows="2" dir="auto" placeholder="چیز دیگری؟ مثلاً: درباره&zwnj;ی کارم با کسی حرف نزن."></textarea>
+    </fieldset>
+  </div>
+
+  <div class="ob-nav">
+    <button type="button" class="btn btn-ghost" data-back data-js hidden>قبلی</button>
+    <button type="button" class="btn btn-primary grow" data-next data-js hidden>ادامه</button>
+    <button type="submit" class="btn btn-primary grow" data-submit>ذخیره و ادامه</button>
+    <button type="submit" class="skip" data-skip data-js hidden title="بقیه را بعداً پر می&zwnj;کنم">بعداً</button>
+  </div>
 </form>
 {% endblock %}

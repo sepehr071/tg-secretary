@@ -1,29 +1,53 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, avatar %}
 {% block content %}
-<h1>{{ "Drafts"|t }}</h1>
+<style>
+  .draft-card { display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 26px; }
+  .draft-card .who { display: flex; align-items: center; gap: 12px; }
+  .draft-card .who .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.5; }
+  .draft-card .who a { color: var(--ink); text-decoration: none; }
+  .draft-card .who small { font-size: 12.5px; }
+  .why { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 99px;
+    background: rgba(224, 137, 42, .12); color: #8a4d0e; font-size: 13px; }
+  .draft-card .bubble-them { margin: 0; box-shadow: 0 2px 8px rgba(28, 27, 46, .05); max-width: 88%; }
+  .suggest { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+  .suggest > b { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--accent); }
+  .suggest textarea { background: rgba(246, 244, 255, .85); border-color: rgba(107, 82, 232, .22); border-radius: var(--r-ctl); }
+  .draft-card .acts { display: flex; gap: 10px; }
+  .draft-card .acts .primary { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .draft-card .acts .primary .ic { transform: scaleX(-1); }
+  [dir="ltr"] .draft-card .acts .primary .ic { transform: none; }
+  .draft-card .acts button:not(.primary) { padding-inline: 20px; font-weight: 700; color: var(--ink-2); }
+</style>
+<div style="padding: 8px 4px 0;">
+  <h1 style="margin: 0;">{{ "Waiting for your OK"|t }}</h1>
+  {% if drafts %}<p class="muted" style="margin: 4px 0 16px;">{{ "These replies aren't sent without your OK. Change the text if you like."|t }}</p>{% endif %}
+</div>
 {% if drafts %}
-<p class="lead">{{ "These replies wait for your OK. Change the text if you like, then send it or skip it."|t }}</p>
 {% for d in drafts %}
-<form method="post" action="{{ root }}/drafts/{{ d.id }}" class="card draft">
-  <p class="draft-head">
-    <a href="{{ root }}/contacts/{{ d.chat_id }}" dir="auto"><b>{{ d.contact_name or d.chat_id }}</b></a>
-    <small>{{ "Waits until"|t }} {{ d.expires_at|ts }}</small>
-  </p>
-  <ol class="chat">
-    <li class="them"><small>{{ "They wrote"|t }}</small><p dir="auto">{{ d.contact_msg }}</p></li>
-  </ol>
-  <label class="stack">
-    <b>{{ "Suggested reply"|t }}</b>
+<form method="post" action="{{ root }}/drafts/{{ d.id }}" class="card draft-card">
+  <div class="who">
+    {{ avatar(d.name, d.rel, "lg") }}
+    <div class="grow">
+      <a href="{{ root }}/contacts/{{ d.chat_id }}" dir="auto"><b>{{ d.name }}</b></a>
+      <small>{{ "Waits {x} more"|t|replace("{x}", d.left) }}</small>
+    </div>
+  </div>
+  <span class="why">{{ icon("info", 16) }}{{ d.reason }}</span>
+  <div class="bubble-them" dir="auto">{{ d.contact_msg }}</div>
+  <label class="suggest">
+    <b>{{ icon("sparkle", 17) }}{{ "The secretary's suggested reply"|t }}</b>
     <textarea name="text" rows="3" dir="auto">{{ d.draft }}</textarea>
   </label>
-  <div class="row">
-    <button name="action" value="send" class="primary">{{ "Send"|t }}</button>
+  <div class="acts">
+    <button name="action" value="send" class="primary">{{ icon("send", 20) }}{{ "Send"|t }}</button>
     <button name="action" value="skip">{{ "Don't send"|t }}</button>
   </div>
 </form>
 {% endfor %}
 {% else %}
 <div class="empty">
+  {{ icon("done_all", 30) }}
   <p><b>{{ "Nothing waiting for you."|t }}</b></p>
   <p>{{ "Replies show up here when you've asked to approve them first, or when a close person sends something sensitive. You can change both in Settings."|t }}</p>
 </div>

@@ -24,6 +24,34 @@ MEMORY_KINDS = {
     "inside_joke": "Inside joke", "open_thread": "Unfinished topic",
 }
 NO_CONNECTION = "No active business connection yet. Connect the bot in Telegram first."
+# One plain line per group: what choosing it changes. Translated by |t.
+REL_DESC = {
+    "gf": "Warm and close. Sensitive messages come to you first.",
+    "family": "Respectful and warm.",
+    "bff": "Very casual, with jokes.",
+    "close_friend": "Casual and close.",
+    "friend": "Friendly and short.",
+    "work": "Polite and formal, makes no promises.",
+    "acquaintance": "Polite and short.",
+    "unknown": "Not sure yet, so it answers carefully and briefly.",
+}
+REL_HUE = {"gf": 350, "family": 40, "bff": 300, "close_friend": 260, "friend": 200, "work": 150, "acquaintance": 90}
+CLOSE = ("gf", "family", "bff", "close_friend")
+# Canned sample replies for the live preview: REPLIES[tone][len] + EMO[emoji].
+REPLIES = [
+    ["سلام، فردا عصر در دسترس نیستم. بعداً خبر می\u200cدهم.",
+     "سلام، وقت بخیر. فردا تا ساعت شش جلسه دارم، ولی از هفت به بعد در خدمتم. اگر مناسب است همان موقع هماهنگ کنیم."],
+    ["سلام! فردا تا شش سرم شلوغه، بعدش آزادم.",
+     "سلام! فردا تا شش سر کارم، ولی از هفت به بعد آزادم. اگه برات خوبه همون موقع ببینیم، خبرم کن."],
+    ["سلام! فردا تا شش گیرم، بعدش پایه\u200cام",
+     "سلااام! فردا تا شش گیرم ولی از هفت به بعد کاملاً آزادم. بگو کجا بریم، من پایه\u200cام"],
+]
+EMO = ["", " 🙂", " 😄✨"]
+PREVIEWS = {f"{t}-{n}-{e}": REPLIES[t][n] + EMO[e] for t in range(3) for n in range(2) for e in range(3)}
+NEVER_CHOICES = (
+    ("promise", "Make promises", "handshake"), ("meet", "Fix a firm meeting time", "event"),
+    ("money", "Talk about money", "payments"), ("private", "Share my personal info", "lock"),
+)
 
 
 def display_name(row: dict[str, Any]) -> str:
@@ -54,18 +82,46 @@ def _contact_file(chat_id: int) -> Path:
     return settings.prompts_dir / "contacts" / f"{chat_id}.txt"
 
 
+def _group_of(r: dict[str, Any]) -> str:
+    return r.get("relationship") or "unknown"
+
+
 @router.get("/contacts")
-async def contacts(request: Request, q: str = ""):
+async def contacts(request: Request, q: str = "", filter: str = "all"):
     rows = await db.list_chats()
-    total = len(rows)
     for r in rows:
         r["name"] = display_name(r)
-        r["rel_label"] = RELATIONSHIPS.get(r.get("relationship") or "unknown", "Not set")
+        r["rel"] = _group_of(r)
+        r["rel_label"] = RELATIONSHIPS.get(r["rel"], "Not set")
+    filters = {
+        "all": lambda r: True,
+        "unknown": lambda r: r["rel"] == "unknown",
+        "close": lambda r: r["rel"] in CLOSE,
+        "work": lambda r: r["rel"] == "work",
+        "paused": lambda r: bool(r.get("paused")),
+    }
+    counts = {k: sum(1 for r in rows if f(r)) for k, f in filters.items()}
+    filter = filter if filter in filters else "all"
+    shown = [r for r in rows if filters[filter](r)]
     needle = q.strip().lower()
     if needle:
-        rows = [r for r in rows
-                if needle in f"{r['chat_id']} {r['name']} {r.get('tg_username') or ''}".lower()]
-    return render(request, "contacts.html", rows=rows, q=q, total=total)
+        shown = [r for r in shown
+                 if needle in f"{r['chat_id']} {r['name']} {r.get('tg_username') or ''}".lower()]
+    return render(request, "contacts.html", rows=shown, q=q, total=len(rows), filter=filter, counts=counts,
+                  relationships=RELATIONSHIPS, rel_desc=REL_DESC, hues=REL_HUE)
+
+
+@router.post("/contacts/{chat_id}/quick")
+async def quick_profile(chat_id: int, relationship: str = Form(""), paused: str = Form("")):
+    """Group + per-contact pause from the bottom sheet; leaves nickname and notes alone."""
+    conn_id = await commands._active_conn_id()
+    if conn_id is None:
+        return back("/contacts", err=NO_CONNECTION)
+    if relationship not in commands.VALID_RELATIONSHIPS:
+        return back("/contacts", err="Unknown relationship.")
+    await db.upsert_override(conn_id=conn_id, chat_id=chat_id, relationship=relationship, paused=paused == "on")
+    prompts.clear_cache()
+    return back("/contacts", msg="Saved.")
 
 
 @router.get("/contacts/{chat_id}")
@@ -79,7 +135,7 @@ async def contact(request: Request, chat_id: int):
         chat_id=chat_id,
         title=display_name({**override, "chat_id": chat_id}),
         o=override,
-        relationships=RELATIONSHIPS,
+        relationships=RELATIONSHIPS, rel_desc=REL_DESC, hues=REL_HUE,
         prompt_text=read_text(_contact_file(chat_id)) or "",
         memories=await db.list_memory(conn_id=conn_id, chat_id=chat_id),
         kinds=MEMORY_KINDS,
@@ -175,26 +231,69 @@ def _prompt_paths(name: str) -> tuple[Path, Path]:
     return folder / f"{name}.txt", folder / f"{name}.example.txt"
 
 
+def _prompt_item(name: str) -> dict[str, str]:
+    real, example = _prompt_paths(name)
+    text, source = read_text(real), "Your own text"
+    # The loader falls back to persona examples but never to about_me.example.txt,
+    # so pre-filling that template would let one Save inject it into every prompt.
+    if text is None and name != "about_me":
+        text, source = read_text(example), "Ready-made sample. Saving makes it yours."
+    if text is None and name in prompts.PERSONAS:
+        text, source = prompts.PERSONAS[name], "Built-in default. Saving makes it yours."
+    return {"name": name, "label": RELATIONSHIPS.get(name, "About me"),
+            "text": text or "", "source": source if text else "Empty"}
+
+
 @router.get("/prompts")
-async def prompts_page(request: Request):
-    items = []
-    for name in PROMPT_NAMES:
-        real, example = _prompt_paths(name)
-        text, source = read_text(real), "Your own text"
-        # The loader falls back to persona examples but never to about_me.example.txt,
-        # so pre-filling that template would let one Save inject it into every prompt.
-        if text is None and name != "about_me":
-            text, source = read_text(example), "Ready-made sample. Saving makes it yours."
-        if text is None and name in prompts.PERSONAS:
-            text, source = prompts.PERSONAS[name], "Built-in default. Saving makes it yours."
-        items.append({"name": name, "label": RELATIONSHIPS.get(name, "About me"),
-                      "text": text or "", "source": source if text else "Empty"})
-    return render(request, "prompts.html", items=items)
+async def prompts_page(request: Request, g: str = "gf"):
+    g = g if g in RELATIONSHIPS else "gf"
+    people = sum(1 for r in await db.list_chats() if _group_of(r) == g)
+    tone = prompts.tone_for(g)
+    return render(
+        request, "prompts.html",
+        about=_prompt_item("about_me"), item=_prompt_item(g), g=g, people=people,
+        relationships=RELATIONSHIPS, rel_desc=REL_DESC, hues=REL_HUE,
+        tone=tone, customized=g in prompts.load_tone(), previews=PREVIEWS,
+        never=prompts.load_tone().get("never", []), never_choices=NEVER_CHOICES,
+    )
 
 
 @router.post("/prompts/{name}")
-async def save_prompt(name: str, text: str = Form("")):
+async def save_prompt(name: str, text: str = Form(""), g: str = Form("")):
     if name not in PROMPT_NAMES:  # whitelist: user input never forms a path
         raise HTTPException(status_code=404)
     write_prompt(_prompt_paths(name)[0], text)
-    return back("/prompts", msg=t("Saved:") + " " + t(RELATIONSHIPS.get(name, "About me")))
+    return back("/prompts", msg=t("Saved:") + " " + t(RELATIONSHIPS.get(name, "About me")),
+                **({"g": g} if g in RELATIONSHIPS else {}))
+
+
+# Declared before /tone/{g} so "never" is never read as a group.
+@router.post("/tone/never")
+async def save_never(never: list[str] = Form([])):
+    try:
+        prompts.save_tone({**prompts.load_tone(), "never": never})
+    except ValueError:
+        return back("/prompts", err="Couldn't save that choice.")
+    return back("/prompts", msg="Saved.")
+
+
+@router.post("/tone/{g}")
+async def save_group_tone(g: str, tone: str = Form(""), len: str = Form(""), emoji: str = Form("")):
+    if g not in RELATIONSHIPS:
+        raise HTTPException(status_code=404)
+    try:
+        axes = {"tone": int(tone), "len": int(len), "emoji": int(emoji)}
+        prompts.save_tone({**prompts.load_tone(), g: axes})
+    except ValueError:
+        return back("/prompts", err="Couldn't save that choice.", g=g)
+    return back("/prompts", msg="Saved.", g=g)
+
+
+@router.post("/tone/{g}/reset")
+async def reset_group_tone(g: str):
+    if g not in RELATIONSHIPS:
+        raise HTTPException(status_code=404)
+    data = prompts.load_tone()
+    data.pop(g, None)
+    prompts.save_tone(data)
+    return back("/prompts", msg="Back to the suggested style.", g=g)

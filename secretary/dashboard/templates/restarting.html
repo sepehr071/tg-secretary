@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "_ui.html" import orb %}
 {% block content %}
 <meta http-equiv="refresh" content="8;url={{ root }}/">
-<section class="card narrow">
-<h1>{{ "Restarting…"|t }}</h1>
-<p>{{ "Under pm2 the bot comes back in a few seconds and this page reloads. Without pm2 the bot is now stopped; start it again by hand."|t }}</p>
+<section class="card hero narrow">
+<div class="hero-head">{{ orb("warn", "lg") }}<div class="hero-text"><span class="hero-title">{{ "Restarting…"|t }}</span></div></div>
+<p class="muted" style="margin:0">{{ "Under pm2 the bot comes back in a few seconds and this page reloads. Without pm2 the bot is now stopped; start it again by hand."|t }}</p>
 </section>
 {% endblock %}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -21,7 +23,7 @@ Output rules (HARD):
 - No quotes around the reply. No translations. No English gloss after a Farsi reply. No "(Nothing, nevermind.)"-style annotations.
 - No markdown, no bullets, no asterisks, no labels like "Reply:". No scratchpad, no reasoning text.
 - Use the SAME language the contact wrote in. Persian in, Persian out. Switch only if they switch.
-- Lowercase. Short. 1-2 sentences. Only longer if the contact directly asked for detail.
+- Lowercase. Short. 1-2 sentences. Only longer if the contact directly asked for detail. The ## Tone section below overrides this length and the emoji default.
 - Punctuation like a texter, not a writer. NEVER end a message with a period — a trailing "." is the single biggest tell that a reply was machine-written, and in Persian a period at the end of a casual text reads cold, formal, or auto-generated. Real people just stop the line where it ends. For a two-part reply, break it with a newline or let the clauses run on the way people actually thumb-type — don't stitch them together with periods. "؟" / "?" is natural; "!" sparingly. "..." is allowed but not a go-to — don't sprinkle ellipses to sound casual, most real texts have none.
 - Greetings get a short warm reply, not a paragraph.
 - Match length to theirs. A 1-3 word message gets at most one short clause back — never a stacked joke, a metaphor, or a paragraph. Don't end every turn with a counter-question. Don't fall into a fixed shape (two lines split by a blank line is a machine tell a real person already caught). Sometimes a single three-word line is the whole reply.
@@ -133,6 +135,120 @@ def defang(text: str) -> str:
     return text.replace("<<<", "‹‹‹").replace(">>>", "›››")
 
 
+# Tone pickers (dashboard): prompts/tone.json. Lookup: group -> "default" -> TONE_DEFAULTS.
+TONE_DEFAULTS: dict[str, dict[str, int]] = {
+    "gf": {"tone": 2, "len": 0, "emoji": 1},
+    "family": {"tone": 1, "len": 1, "emoji": 1},
+    "bff": {"tone": 2, "len": 0, "emoji": 2},
+    "close_friend": {"tone": 2, "len": 0, "emoji": 1},
+    "friend": {"tone": 1, "len": 0, "emoji": 1},
+    "work": {"tone": 0, "len": 1, "emoji": 0},
+    "acquaintance": {"tone": 0, "len": 0, "emoji": 0},
+    "unknown": {"tone": 0, "len": 0, "emoji": 0},
+}
+_TONE_MAX = {"tone": 2, "len": 1, "emoji": 2}
+_TONE_LINES = {
+    "tone": [
+        "Formal and polite (Persian: use شما)",
+        "Neutral, friendly",
+        "Very casual, slangy, like texting a close friend",
+    ],
+    "len": [
+        "Keep replies short: one or two lines",
+        "Replies can be fuller, 2-4 sentences",
+    ],
+    "emoji": [
+        "No emoji",
+        "At most one emoji, only sometimes",
+        "Emoji are welcome",
+    ],
+}
+_NEVER_LINES = {
+    "promise": "Never promise anything on my behalf",
+    "meet": "Never fix a firm meeting time or place",
+    "money": "Never discuss money, prices, or payments",
+    "private": "Never share my personal information (address, phone, schedule details)",
+}
+
+
+def _tone_path() -> Path:
+    return settings.prompts_dir / "tone.json"
+
+
+def _valid_axes(d: object) -> dict[str, int]:
+    """Keep only known axes whose value is an int in range."""
+    if not isinstance(d, dict):
+        return {}
+    return {
+        k: v for k, v in d.items()
+        if k in _TONE_MAX and type(v) is int and 0 <= v <= _TONE_MAX[k]
+    }
+
+
+def _clean_tone(data: object) -> dict:
+    out: dict = {}
+    if not isinstance(data, dict):
+        return out
+    for k, v in data.items():
+        if k == "never":
+            if isinstance(v, list):
+                out[k] = [x for x in dict.fromkeys(v) if x in _NEVER_LINES]
+        elif k == "default" or k in TONE_DEFAULTS:
+            out[k] = _valid_axes(v)
+    return out
+
+
+def load_tone() -> dict:
+    """Read tone.json; missing/invalid file or entries are dropped, never raises."""
+    text = _read_text_cached(_tone_path())
+    if not text:
+        return {}
+    try:
+        return _clean_tone(json.loads(text))
+    except ValueError:
+        return {}
+
+
+def save_tone(data: dict) -> None:
+    """Validate (raises ValueError on unknown key / bad value), write atomically, clear cache."""
+    if not isinstance(data, dict):
+        raise ValueError("tone data must be an object")
+    for k, v in data.items():
+        if k == "never":
+            if not isinstance(v, list) or any(x not in _NEVER_LINES for x in v):
+                raise ValueError("bad never list")
+        elif k == "default" or k in TONE_DEFAULTS:
+            if not isinstance(v, dict) or _valid_axes(v) != v:
+                raise ValueError(f"bad tone for {k}")
+        else:
+            raise ValueError(f"unknown key {k}")
+    path = _tone_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(_clean_tone(data), ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    clear_cache()
+
+
+def tone_for(rel: str) -> dict[str, int]:
+    """Effective {"tone","len","emoji"} for a relationship: group -> default -> REL def."""
+    rel = (rel or "unknown").strip().lower()
+    stored = load_tone()
+    out = dict(TONE_DEFAULTS.get(rel, TONE_DEFAULTS["unknown"]))
+    out.update(stored.get("default", {}))
+    out.update(stored.get(rel, {}))
+    return out
+
+
+def _tone_sections(rel: str) -> str:
+    t = tone_for(rel)
+    s = "\n\n## Tone\n" + "\n".join(f"- {_TONE_LINES[a][t[a]]}" for a in ("tone", "len", "emoji"))
+    never = [_NEVER_LINES[k] for k in load_tone().get("never", [])]
+    if never:
+        s += "\n\n## Never\n" + "\n".join(f"- {n}" for n in never)
+    return s
+
+
 def _persona_text(relationship: str) -> str:
     rel = (relationship or "unknown").strip().lower()
     # Local <rel>.txt (gitignored, your real persona) wins over the shipped example.
@@ -193,6 +309,8 @@ def load_system_prompt(
     persona = _persona_text(relationship)
     if persona:
         parts.append(f"\n\n## Relationship style\n{persona}")
+
+    parts.append(_tone_sections(relationship))
 
     contact_block = _contact_text(chat_id)
     if contact_block:

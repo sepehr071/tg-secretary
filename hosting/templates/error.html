@@ -1,7 +1,11 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, orb %}
 {% block title %}{{ title }} | منشی تلگرام{% endblock %}
 {% block content %}
-<h1>{{ title }}</h1>
-<p class="lead" dir="auto">{{ body }}</p>
-<a class="btn" href="/account">بازگشت به حساب کاربری</a>
+<section class="card narrow center">
+  {{ orb("danger", 56) }}
+  <h1>{{ title }}</h1>
+  <p class="lead" dir="auto">{{ body }}</p>
+  <a class="btn btn-primary" href="/account">برگرد به حساب من</a>
+</section>
 {% endblock %}

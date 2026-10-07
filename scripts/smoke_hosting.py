@@ -390,14 +390,42 @@ async def check_onboarding_v2() -> None:
         con.commit()
         assert (await c.get("/account/connected")).json() == {"connected": True, "can_reply": False}
         r = await c.get("/account")
-        assert "اجازه&zwnj;ی پاسخ به پیام&zwnj;ها را روشن کنید" in r.text and "data-poll-connected" in r.text
+        assert "ولی اجازه&zwnj;ی جواب دادن ندارد" in r.text and "data-poll-connected" in r.text
         con.execute("UPDATE connections SET can_reply=1")
         con.commit()
         con.close()
         assert (await c.get("/account/connected")).json() == {"connected": True, "can_reply": True}
         r = await c.get("/account")
-        assert "روشن کنید" not in r.text and "data-poll-connected" not in r.text
+        assert "ولی اجازه&zwnj;ی جواب دادن ندارد" not in r.text and "data-poll-connected" not in r.text
     assert not hasattr(tenants, "attach_bot")
+
+
+@check
+async def check_onboarding_tone() -> None:
+    """New wizard fields land in about_me.txt and a valid tone.json; old text fields still work."""
+    app = happ.create_app()
+    await db.upsert_user(125, "Tone", "tone")
+    cookie = await db.create_session(125)
+    async with web(app, cookie) as c:
+        await c.post("/onboard/consent", data={"accept": "1"})
+        r = await c.get("/onboard/profile")
+        assert r.status_code == 200 and 'name="tone"' in r.text and 'name="never_text"' in r.text
+        form = {"first_name": "Tone", "about": "teacher", "style": "says dude", "tone": "2", "len": "0",
+                "emoji": "1", "never": ["promise", "money", "bogus"], "never_text": "no work talk"}
+        assert (await c.post("/onboard/profile", data=form)).status_code == 303
+        d = tenants.tenant_dir((await db.get_tenant_by_owner(125))["id"]) / "prompts"
+        assert json.loads((d / "tone.json").read_text(encoding="utf-8")) == {
+            "default": {"tone": 2, "len": 0, "emoji": 1}, "never": ["promise", "money"]}
+        about = (d / "about_me.txt").read_text(encoding="utf-8")
+        assert "teacher" in about and "casual and friendly" in about and "says dude" in about, about
+        assert "make promises" in about and "talk about money" in about and "no work talk" in about, about
+        assert not (d / "tone.json.tmp").exists()
+        # Out-of-range / junk values are dropped, not stored; legacy free-text `never` is kept in about_me.
+        bad = {"first_name": "Tone", "about": "x", "tone": "9", "len": "abc", "emoji": "²", "never": "never lie"}
+        assert (await c.post("/onboard/profile", data=bad)).status_code == 303
+        t = json.loads((d / "tone.json").read_text(encoding="utf-8"))
+        assert t["default"] == {"tone": 2, "len": 0, "emoji": 1} and t["never"] == [], t   # default kept, never cleared
+        assert "never lie" in (d / "about_me.txt").read_text(encoding="utf-8")
 
 
 @check

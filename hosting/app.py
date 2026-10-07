@@ -24,6 +24,17 @@ COOKIE = "hs_session"
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
 PUBLIC_PATHS = {"/", "/login", oidc.REDIRECT_PATH, oidc.WIDGET_PATH}
 MAX_AMOUNT = 1000.0
+# Canned preview replies for the onboarding style step, keyed "tone-len-emoji" (same texts as the dashboard).
+_REPLIES = [
+    ["سلام، فردا عصر در دسترس نیستم. بعداً خبر می\u200cدهم.",
+     "سلام، وقت بخیر. فردا تا ساعت شش جلسه دارم، ولی از هفت به بعد در خدمتم. اگر مناسب است همان موقع هماهنگ کنیم."],
+    ["سلام! فردا تا شش سرم شلوغه، بعدش آزادم.",
+     "سلام! فردا تا شش سر کارم، ولی از هفت به بعد آزادم. اگه برات خوبه همون موقع ببینیم، خبرم کن."],
+    ["سلام! فردا تا شش گیرم، بعدش پایه\u200cام",
+     "سلااام! فردا تا شش گیرم ولی از هفت به بعد کاملاً آزادم. بگو کجا بریم، من پایه\u200cام"],
+]
+_EMO = ["", " 🙂", " 😄✨"]
+PREVIEWS = {f"{t}-{l}-{e}": _REPLIES[t][l] + _EMO[e] for t in range(3) for l in range(2) for e in range(3)}
 
 
 def parse_amount(raw: str) -> float | None:
@@ -34,6 +45,11 @@ def parse_amount(raw: str) -> float | None:
     except ValueError:
         return None
     return value if 0 < value <= MAX_AMOUNT else None
+
+
+def _pick(raw: str, top: int) -> int | None:
+    """A 0..top choice from a form radio; None when missing or out of range."""
+    return int(raw) if raw.isascii() and raw.isdigit() and int(raw) <= top else None
 
 
 async def next_step(tg_id: int) -> str:
@@ -188,15 +204,21 @@ def create_app() -> FastAPI:
     async def profile_page(request: Request):
         if await next_step(uid(request)) == "consent":
             return RedirectResponse("/onboard/consent", status_code=303)
-        return render(request, "onboard_profile.html", first_name=request.state.user["first_name"] or "")
+        return render(request, "onboard_profile.html", first_name=request.state.user["first_name"] or "",
+                      previews=PREVIEWS)
 
     @app.post("/onboard/profile")
     async def profile(request: Request, first_name: str = Form(""), about: str = Form(""),
-                      style: str = Form(""), never: str = Form("")):
+                      style: str = Form(""), never: list[str] = Form([]), never_text: str = Form(""),
+                      tone: str = Form(""), length: str = Form("", alias="len"), emoji: str = Form("")):
         if await next_step(uid(request)) == "consent":
             return RedirectResponse("/onboard/consent", status_code=303)
         t = await _tenant_for(request)
-        await tenants.save_profile(t["id"], first_name, about, style, never)
+        # `never` carries the checkbox keys; an old client may post free text under the same name.
+        keys = [v for v in never if v in tenants.NEVER_KEYS]
+        legacy = " ".join(v.strip() for v in never if v not in tenants.NEVER_KEYS and v.strip())
+        await tenants.save_profile(t["id"], first_name, about, style, " ".join(x for x in (never_text.strip(), legacy) if x),
+                                   tone=_pick(tone, 2), length=_pick(length, 1), emoji=_pick(emoji, 2), never_keys=keys)
         if t["status"] not in ("draft", "awaiting_credit"):
             return RedirectResponse("/account", status_code=303)  # running/stopped: profile edit only
         if t["status"] == "draft":

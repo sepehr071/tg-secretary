@@ -954,3 +954,15 @@ async def list_open_pending() -> list[dict[str, Any]]:
         (int(time.time()),),
     )
     return [dict(r) for r in await cur.fetchall()]
+
+
+async def recent_reply_pairs(limit: int) -> list[dict[str, Any]]:
+    """Latest bot replies, each with the contact message it answered (`them`, may be None)."""
+    cur = await _db().execute(
+        "SELECT a.chat_id, a.content AS reply, a.created_at, "
+        "(SELECT u.content FROM messages u WHERE u.conn_id = a.conn_id AND u.chat_id = a.chat_id "
+        "AND u.role = 'user' AND u.id < a.id ORDER BY u.id DESC LIMIT 1) AS them "
+        "FROM messages a WHERE a.role = 'assistant' AND a.via_bot = 1 ORDER BY a.id DESC LIMIT ?",
+        (limit,),
+    )
+    return [dict(r) for r in await cur.fetchall()]

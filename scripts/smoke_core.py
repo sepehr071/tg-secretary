@@ -70,6 +70,33 @@ async def main() -> None:
     assert len(handlers.approval_markup(7, "short").inline_keyboard[0]) == 3
     assert len(handlers.approval_markup(7, "x" * 300).inline_keyboard[0]) == 2
 
+    # Tone pickers: save -> load -> assembled prompt; bad JSON ignored.
+    from secretary import prompts
+    real_dir = prompts.settings.prompts_dir
+    prompts.settings.prompts_dir = Path(tempfile.mkdtemp())
+    try:
+        assert prompts.load_tone() == {}
+        p = prompts.load_system_prompt(relationship="gf")
+        assert "## Tone" in p and "Very casual, slangy" in p and "## Never" not in p
+        prompts.save_tone({"default": {"tone": 1}, "work": {"emoji": 2}, "never": ["money", "meet"]})
+        assert prompts.tone_for("gf") == {"tone": 1, "len": 0, "emoji": 1}
+        assert prompts.tone_for("work") == {"tone": 1, "len": 1, "emoji": 2}
+        p = prompts.load_system_prompt(relationship="work")
+        assert "Neutral, friendly" in p and "Emoji are welcome" in p
+        assert "## Never\n- Never discuss money" in p and "Never fix a firm meeting" in p
+        assert "promise" not in p.split("## Never")[1]
+        for bad in ({"gf": {"tone": 9}}, {"zzz": {}}, {"never": ["x"]}, {"gf": {"len": True}}):
+            try:
+                prompts.save_tone(bad)
+                raise AssertionError(bad)
+            except ValueError:
+                pass
+        (prompts.settings.prompts_dir / "tone.json").write_text("{not json", encoding="utf-8")
+        prompts.clear_cache()
+        assert prompts.load_tone() == {} and prompts.tone_for("gf")["tone"] == 2
+    finally:
+        prompts.settings.prompts_dir = real_dir
+
     await db.close_db()
     print("smoke_core OK")
 

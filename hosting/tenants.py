@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import secrets
@@ -42,16 +43,48 @@ def write_env(tid: int, values: dict[str, str]) -> None:
         set_key(env, k, v)  # quotes values, so names with spaces or '#' are safe
 
 
-async def save_profile(tid: int, first_name: str, about: str, style: str, never: str) -> None:
+NEVER_KEYS = ("promise", "meet", "money", "private")
+_TONE_TXT = ("formal", "neutral", "casual and friendly")
+_LEN_TXT = ("short messages", "longer, detailed messages")
+_EMOJI_TXT = ("no emoji", "a few emoji", "lots of emoji")
+_NEVER_TXT = {"promise": "make promises", "meet": "lock in plans to meet", "money": "talk about money",
+              "private": "share my personal information"}
+
+
+def _write_tone(tid: int, tone: int | None, length: int | None, emoji: int | None, never_keys: list[str]) -> None:
+    """Merge default + never into prompts/tone.json (keeps per-group keys the dashboard saved). Atomic."""
+    path = _ensure_dir(tid) / "prompts" / "tone.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    if tone is not None and length is not None and emoji is not None:
+        data["default"] = {"tone": tone, "len": length, "emoji": emoji}
+    data["never"] = [k for k in NEVER_KEYS if k in never_keys]
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+async def save_profile(tid: int, first_name: str, about: str, style: str, never: str, *, tone: int | None = None,
+                       length: int | None = None, emoji: int | None = None, never_keys: list[str] | None = None) -> None:
     t = await db.get_tenant(tid)
     if t is None:
         raise ValueError(f"no tenant {tid}")
+    keys = never_keys or []
+    how = ", ".join([txt[v] for v, txt in ((tone, _TONE_TXT), (length, _LEN_TXT), (emoji, _EMOJI_TXT)) if v is not None])
     parts = [about.strip()]
-    if style.strip():
-        parts.append(f"How I write: {style.strip()}")
+    if how or style.strip():
+        parts.append("How I write: " + ". ".join(x for x in (how, style.strip()) if x))
+    nevers = [_NEVER_TXT[k] for k in NEVER_KEYS if k in keys]
     if never.strip():
-        parts.append(f"Never: {never.strip()}")
+        nevers.append(never.strip())
+    if nevers:
+        parts.append("Never: " + "; ".join(nevers))
     (_ensure_dir(tid) / "prompts" / "about_me.txt").write_text("\n\n".join(p for p in parts if p) + "\n", encoding="utf-8")
+    _write_tone(tid, tone, length, emoji, keys)
     write_env(tid, {
         "TG_BOT_TOKEN": settings.platform_bot_token, "OWNER_USER_ID": str(t["owner_tg_id"]),
         "OWNER_FIRST_NAME": first_name.strip() or "the owner",

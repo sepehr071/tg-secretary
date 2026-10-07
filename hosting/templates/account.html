@@ -1,86 +1,91 @@
 {% extends "base.html" %}
-{% block title %}حساب کاربری | منشی تلگرام{% endblock %}
+{% from "_ui.html" import icon, orb, stage %}
+{% block title %}حساب من | منشی تلگرام{% endblock %}
 {% macro fa(n) %}{{ ("%.2f"|format(n or 0))|replace("0","۰")|replace("1","۱")|replace("2","۲")|replace("3","۳")|replace("4","۴")|replace("5","۵")|replace("6","۶")|replace("7","۷")|replace("8","۸")|replace("9","۹")|replace(".","٫") }}{% endmacro %}
 {% block content %}
 {% if tenant.status in ("draft", "awaiting_credit") %}
-<p class="stage">مرحله&zwnj;ی ۳ از ۳</p>
+{{ stage(3, "شارژ و اتصال") }}
 <h1>شارژ اعتبار</h1>
-<p class="lead">منشی آماده است و فقط منتظر اعتبار است. هزینه&zwnj;ی هر پاسخ از این اعتبار کم می&zwnj;شود.</p>
+<p class="lead">منشی آماده است و فقط منتظر اعتبار است. هزینه&zwnj;ی هر جواب از این اعتبار کم می&zwnj;شود.</p>
 {% if payment_instructions %}
-<div class="panel pay" dir="auto">{{ payment_instructions }}</div>
+<div class="card pay" dir="auto">{{ payment_instructions }}</div>
 {% endif %}
-<p>پس از پرداخت، مدیر سرویس اعتبار را به حساب شما اضافه می&zwnj;کند و منشی روشن می&zwnj;شود.</p>
+<p>بعد از پرداخت، مدیر سرویس اعتبار را به حسابت اضافه می&zwnj;کند و منشی روشن می&zwnj;شود.</p>
 
-<section class="block">
-  <h2>اتصال به تلگرام</h2>
-  <p>تا منتظر اعتبار هستید، همین حالا منشی را به حسابتان وصل کنید. در تلگرام این مسیر را بروید:</p>
-  <ol class="steps compact">
-    <li><span>تنظیمات تلگرام</span></li>
-    <li><span><bdi dir="ltr">Chat Automation</bdi></span></li>
-    <li><span>انتخاب <bdi dir="ltr">@{{ bot_username }}</bdi></span></li>
-  </ol>
+<section class="card">
+  <h2>وصل کردن به تلگرام</h2>
+  <p class="muted">تا منتظر اعتبار هستی، همین حالا منشی را به حسابت وصل کن. سه کار ساده در تلگرام، حدود یک دقیقه:</p>
+  {% include "_connect.html" %}
 </section>
 
 {% elif tenant.status == "running" %}
-<h1>منشی شما روشن است</h1>
+{% if connection == "ok" %}
+<section class="card hero">
+  {{ orb("ok", 64) }}
+  <div>
+    <p class="kicker ok">روشن است</p>
+    <h1>منشی جواب پیام&zwnj;ها را می&zwnj;دهد</h1>
+    <p class="muted">به پیام&zwnj;های چت&zwnj;هایی که انتخاب کرده&zwnj;ای جواب می&zwnj;دهد و همه&zwnj;ی جواب&zwnj;ها را در همان چت می&zwnj;بینی.</p>
+  </div>
+</section>
+{% else %}
+<section class="card hero hero-col" {% if connection == "no_reply" %}role="alert"{% endif %}>
+  <div class="hero-head">
+    {{ orb("warn", 64) }}
+    <div>
+      <p class="kicker warn">یک قدم مانده</p>
+      {% if connection == "no_reply" %}
+      <h1>وصل است، ولی اجازه&zwnj;ی جواب دادن ندارد</h1>
+      <p class="muted">تا این اجازه را ندهی، منشی به هیچ پیامی جواب نمی&zwnj;دهد. در تنظیمات <bdi dir="ltr">Chat Automation</bdi>، اجازه&zwnj;ی «جواب دادن به پیام&zwnj;ها» را روشن کن.</p>
+      {% else %}
+      <h1>منشی را به تلگرامت وصل کن</h1>
+      <p class="muted">سه کار ساده در تلگرام، حدود یک دقیقه:</p>
+      {% endif %}
+    </div>
+  </div>
+  {% set poll = true %}
+  {% include "_connect.html" %}
+</section>
+{% endif %}
 
-<section class="block">
+<section class="card">
   <h2>اعتبار</h2>
   {% if credit and credit.limit %}
   {% set pct = ((credit.limit_remaining or 0) / credit.limit * 100)|round|int %}
-  <div class="meter{% if pct < 15 %} low{% endif %}"><span style="width: {{ [0, [pct, 100]|min]|max }}%"></span></div>
-  <p class="meter-text"><strong>{{ fa(credit.limit_remaining) }} دلار</strong> مانده از {{ fa(credit.limit) }} دلار</p>
-  {% if pct < 15 %}<p class="hint">اعتبار رو به اتمام است. برای شارژ دوباره با مدیر سرویس تماس بگیرید.</p>{% endif %}
+  <div class="meter{% if pct < 15 %} low{% endif %}" role="img" aria-label="اعتبار باقی&zwnj;مانده {{ pct }} درصد"><span style="width: {{ [0, [pct, 100]|min]|max }}%"></span></div>
+  <p class="meter-text"><strong>{{ fa(credit.limit_remaining) }}</strong> از {{ fa(credit.limit) }} دلار</p>
+  {% if pct < 15 %}<p class="hint warn">اعتبارت رو به اتمام است. برای شارژ دوباره با مدیر سرویس تماس بگیر.</p>{% endif %}
   {% else %}
-  <p class="hint">اطلاعات اعتبار الان در دسترس نیست. کمی بعد دوباره سر بزنید.</p>
+  <p class="muted">اطلاعات اعتبار الان در دسترس نیست. کمی بعد دوباره سر بزن.</p>
   {% endif %}
 </section>
 
-<section class="block">
-  <h2>اتصال به تلگرام</h2>
-  {% if connection == "ok" %}
-  <p class="status on">وصل است. منشی به پیام&zwnj;های چت&zwnj;هایی که انتخاب کرده&zwnj;اید پاسخ می&zwnj;دهد.</p>
-  {% elif connection == "no_reply" %}
-  <div class="panel" role="alert">
-    <p class="status off" data-poll-connected aria-live="polite"><strong>وصل است، ولی اجازه&zwnj;ی پاسخ ندارد.</strong> تا این اجازه را ندهید، منشی به هیچ پیامی جواب نمی&zwnj;دهد. در تلگرام:</p>
-    <ol class="steps compact">
-      <li><span>تنظیمات تلگرام</span></li>
-      <li><span><bdi dir="ltr">Chat Automation</bdi></span></li>
-      <li><span>انتخاب <bdi dir="ltr">@{{ bot_username }}</bdi></span></li>
-      <li><span>اجازه&zwnj;ی پاسخ به پیام&zwnj;ها را روشن کنید</span></li>
-    </ol>
-    <p class="hint">بعد از روشن کردن، این صفحه خودش به&zwnj;روز می&zwnj;شود.</p>
-  </div>
-  {% else %}
-  <p class="status off" data-poll-connected aria-live="polite">هنوز وصل نشده. در تلگرام این مسیر را بروید:</p>
-  <ol class="steps compact">
-    <li><span>تنظیمات تلگرام</span></li>
-    <li><span><bdi dir="ltr">Chat Automation</bdi></span></li>
-    <li><span>انتخاب <bdi dir="ltr">@{{ bot_username }}</bdi></span></li>
-  </ol>
-  <p class="hint">بعد از انتخاب، این صفحه خودش به&zwnj;روز می&zwnj;شود.</p>
-  {% endif %}
-</section>
-
-<section class="block">
+<section class="card">
   <h2>تنظیمات منشی</h2>
-  <p>لحن، مخاطب&zwnj;ها، پیش&zwnj;نویس&zwnj;ها و ساعت&zwnj;های سکوت را در داشبورد تنظیم کنید.</p>
-  <a class="btn quiet" href="/app/">داشبورد</a>
+  <p class="muted">لحن، آدم&zwnj;ها، جواب&zwnj;های منتظر تأیید و ساعت&zwnj;های سکوت را در داشبورد تنظیم کن.</p>
+  <a class="btn btn-ghost" href="/app/">{{ icon("tune", 20) }}داشبورد</a>
+  <a class="btn btn-ghost" href="/onboard/profile">{{ icon("person", 20) }}ویرایش معرفی من</a>
 </section>
 
 {% else %}
-<h1>منشی شما خاموش است</h1>
-<p>منشی فعلاً به پیامی پاسخ نمی&zwnj;دهد. برای روشن کردن دوباره با مدیر سرویس تماس بگیرید.</p>
+<section class="card hero">
+  {{ orb("paused", 64) }}
+  <div>
+    <p class="kicker">خاموش است</p>
+    <h1>منشی فعلاً جواب نمی&zwnj;دهد</h1>
+    <p class="muted">برای روشن کردن دوباره با مدیر سرویس تماس بگیر.</p>
+  </div>
+</section>
 {% endif %}
 
-<details class="danger">
-  <summary>حذف حساب</summary>
+<details class="card danger">
+  <summary>{{ icon("trash", 18) }}حذف حساب</summary>
   <form method="post" action="/account/delete">
-    <p>با حذف حساب، منشی خاموش و همه&zwnj;ی داده&zwnj;های شما پاک می&zwnj;شود. این کار برگشت ندارد.</p>
-    <p>بعد از حذف، در تلگرام از مسیر تنظیمات، <bdi dir="ltr">Chat Automation</bdi> هم ربات <bdi dir="ltr">@{{ bot_username }}</bdi> را بردارید.</p>
-    <label for="confirm">برای تأیید، کلمه&zwnj;ی «حذف» را بنویسید</label>
+    <p>با حذف حساب، منشی خاموش و همه&zwnj;ی داده&zwnj;هایت پاک می&zwnj;شود. این کار برگشت ندارد.</p>
+    <p>بعد از حذف، در تلگرام از مسیر تنظیمات، <bdi dir="ltr">Chat Automation</bdi> هم ربات <bdi dir="ltr">@{{ bot_username }}</bdi> را بردار.</p>
+    <label for="confirm">برای تأیید، کلمه&zwnj;ی «حذف» را بنویس</label>
     <input id="confirm" name="confirm" type="text" dir="auto" autocomplete="off" required>
-    <button class="btn danger-btn">حذف همیشگی حساب</button>
+    <button class="btn btn-danger">حذف همیشگی حساب</button>
   </form>
 </details>
 {% endblock %}

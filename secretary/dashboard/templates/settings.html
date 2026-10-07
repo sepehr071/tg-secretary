@@ -1,16 +1,43 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, switch, segmented %}
 {% block content %}
-<script>
-  // Before the forms are parsed, so the advanced fields never flash. Without JS they all stay visible.
-  document.documentElement.classList.add("js");
-  try { if (localStorage.getItem("dash-advanced") === "1") document.documentElement.classList.add("adv"); } catch (e) {}
-</script>
-<div class="page-head">
-  <h1>{{ "Settings"|t }}</h1>
-  <label class="adv-toggle">
-    <input type="checkbox" class="switch" id="adv-toggle">
-    <span>{{ "Advanced settings"|t }}</span>
-  </label>
+<style>
+  .set-card { padding: 6px 18px 8px; }
+  .set-card .sec { padding: 12px 0 4px; margin: 0; font-size: 13px; font-weight: 700; color: var(--accent); }
+  .set-card .setting { border-top: 0; padding: 12px 0; }
+  .set-card .setting + .setting, .set-card .setting + .quiet-times + .setting, .set-card .seg-row + .setting { border-top: 1px solid var(--line); }
+  .set-card .setting input:not([type=number]):not([type=time]):not([type=checkbox]) { width: 100%; }
+  .seg-row { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; }
+  .seg-row > span { display: flex; flex-direction: column; line-height: 1.6; }
+  .seg-row small, .set-card .setting small { font-size: 13px; }
+  .quiet-times { display: none; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 0 12px; }
+  .live-form:has(input[name=quiet_on]:checked) .quiet-times { display: flex; }
+  @supports not selector(:has(*)) { .quiet-times { display: flex; } }
+  .quiet-times input[type=time] { direction: ltr; }
+  .redo { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+  .redo:hover { color: var(--ink); }
+  .redo .grow { flex: 1; display: flex; flex-direction: column; line-height: 1.6; }
+  .redo small { font-size: 13px; }
+  .redo .ic { color: var(--faint); }
+  .tech-set { padding: 4px 18px; background: rgba(255, 255, 255, .4); border-color: rgba(255, 255, 255, .8); }
+  .tech-set > summary { display: flex; align-items: center; gap: 10px; min-height: 56px; cursor: pointer; color: var(--ink-2); list-style: none; }
+  .tech-set > summary::-webkit-details-marker { display: none; }
+  .tech-set > summary .grow { flex: 1; display: flex; flex-direction: column; line-height: 1.5; }
+  .tech-set > summary .ic { color: var(--faint); }
+  .tech-set > summary small { font-size: 12.5px; }
+  .tech-set[open] > summary .more, .tech-set:not([open]) > summary .less { display: none; }
+  .tech-set form { margin: 0 0 12px; }
+  .tech-set .sec { font-size: 13px; font-weight: 700; color: var(--accent); margin: 12px 0 0; }
+  .tech-set .setting { border-top: 1px solid var(--line); }
+  .tech-set .setting input:not([type=number]):not([type=checkbox]) { width: 18rem; }
+  .tech-set .save { padding: 8px 0 4px; }
+  .saved-note { display: flex; align-items: center; gap: 6px; margin: 4px 0 16px; color: var(--muted); }
+  .saved-note .ic { color: var(--ok); }
+  @media (max-width: 520px) { .tech-set .setting input:not([type=number]):not([type=checkbox]) { width: 100%; } }
+</style>
+<div style="padding: 8px 4px 0;">
+  <h1 style="margin: 0;">{{ "Settings"|t }}</h1>
+  <p class="saved-note">{{ icon("cloud_done", 18) }}{{ "Every change is saved the moment you make it."|t }}</p>
 </div>
 {% if restart %}
 <form method="post" action="{{ root }}/restart" class="card warn">
@@ -19,91 +46,73 @@
 </form>
 {% endif %}
 
-<form method="post" action="{{ root }}/settings/live" class="sheet">
-  {# Values as loaded: the server writes only fields that differ from these. #}
-  {% for key, value in live.items() %}<input type="hidden" name="orig_{{ key }}" value="{{ value }}">{% endfor %}
+<form method="post" action="{{ root }}/settings/live" class="live-form" data-autosave
+      data-saved="{{ 'Saved'|t }}" data-failed="{{ 'Couldn\'t save. Try again.'|t }}">
+  <input type="hidden" name="_full" value="1">
 
-  <fieldset class="group">
-    <legend>{{ "Replying"|t }}</legend>
-    <p class="group-hint">{{ "When the secretary answers for you."|t }}</p>
-    <label class="setting">
-      <span><b>{{ "Pause all auto-replies"|t }}</b><small>{{ "Nothing is sent until you turn this off."|t }}</small></span>
-      <input type="checkbox" class="switch" name="paused" {{ "checked" if live.paused == "on" }}>
-    </label>
-    <label class="setting">
-      <span><b>{{ "Ask me before sending"|t }}</b><small>{{ "Every reply waits for you in Drafts."|t }}</small></span>
-      <input type="checkbox" class="switch" name="approval_mode" {{ "checked" if live.approval_mode == "on" }}>
-    </label>
-    <label class="setting">
-      <span><b>{{ "Hold sensitive messages from close people"|t }}</b><small>{{ "Emotional, long or after-a-silence messages from your partner, family and close friends wait for you in Drafts."|t }}</small></span>
-      <input type="checkbox" class="switch" name="innercircle_gate" {{ "checked" if live.innercircle_gate == "on" }}>
-    </label>
-  </fieldset>
+  <div class="card set-card">
+    <h2 class="sec">{{ "The secretary"|t }}</h2>
+    {{ switch("enabled", enabled, "Keep the secretary on"|t, "When it's off, no reply is sent on your behalf."|t) }}
+    {{ switch("approval_mode", approval, "Ask me before sending"|t, "Every reply waits in Waiting for you until you approve it."|t) }}
+    {{ switch("innercircle_gate", innercircle, "Hold sensitive messages from close people"|t, "Emotional, long or after-a-silence messages from your partner, family and close friends wait for you in Drafts."|t) }}
+  </div>
 
-  <fieldset class="group">
-    <legend>{{ "Timing"|t }}</legend>
-    <p class="group-hint">{{ "How soon replies go out."|t }}</p>
-    <div class="setting">
-      <label for="delay_override"><b>{{ "Wait before replying"|t }}</b><small>{{ "Gives you time to answer yourself first. Leave empty for the default."|t }}</small></label>
-      <span class="unit"><input type="number" min="0" id="delay_override" name="delay_override" value="{{ live.delay_override }}" placeholder="{{ s.auto_reply_delay_seconds|num }}"> {{ "seconds"|t }}</span>
+  <div class="card set-card">
+    <h2 class="sec">{{ "When it replies"|t }}</h2>
+    <div class="seg-row">
+      <span><b>{{ "How long should it wait for you to reply first?"|t }}</b><small>{{ "If you reply in that time, the secretary stays quiet."|t }}</small></span>
+      {{ segmented("delay_override", delay_options, delay, "How long should it wait for you to reply first?"|t) }}
     </div>
-    <div class="setting">
-      <span><b>{{ "Quiet hours"|t }}</b><small>{{ "Leave both empty to reply at any hour."|t }}</small></span>
-      <span class="unit">{{ "Don't reply between"|t }}
-        <input type="time" name="quiet_start" value="{{ live.quiet_start }}" aria-label="{{ 'Quiet hours start'|t }}">
-        {{ "and"|t }}
-        <input type="time" name="quiet_end" value="{{ live.quiet_end }}" aria-label="{{ 'Quiet hours end'|t }}"></span>
+    <input type="hidden" name="quiet_on" value="off">
+    {{ switch("quiet_on", quiet_on, "Quiet hours"|t, "For example at night while you sleep, the secretary doesn't reply either."|t) }}
+    <div class="quiet-times">
+      <span>{{ "Don't reply from"|t }}</span>
+      <input type="time" name="quiet_start" value="{{ quiet_start }}" aria-label="{{ 'Quiet hours start'|t }}">
+      <span>{{ "until"|t }}</span>
+      <input type="time" name="quiet_end" value="{{ quiet_end }}" aria-label="{{ 'Quiet hours end'|t }}">
     </div>
-  </fieldset>
+  </div>
 
-  <fieldset class="group voice-group">
-    <legend>{{ "Voice messages"|t }}</legend>
-    <p class="group-hint">{{ "Voice messages are turned into text, then answered like any other message."|t }}</p>
-    <label class="setting">
-      <span><b>{{ "Answer voice messages"|t }}</b></span>
-      {# Hidden "off" first: an unchecked box sends nothing, and the server reads the last value. #}
-      <input type="hidden" name="voice_override" value="off" data-voice-simple>
-      <input type="checkbox" class="switch" name="voice_override" value="on" data-voice-simple {{ "checked" if live.voice_override == "on" }}>
-    </label>
-  </fieldset>
-
-  <fieldset class="group advanced">
-    <legend>{{ "Technical"|t }}</legend>
-    <p class="group-hint">{{ "For people who know what these do."|t }}</p>
-    {% for key, label, default in live_ints if key != "delay_override" %}
+  <div class="card set-card">
+    <h2 class="sec">{{ "Voice and name"|t }}</h2>
+    {# Hidden "off" first: an unchecked box sends nothing, and the server reads the last value. #}
+    <input type="hidden" name="voice_override" value="off">
+    {{ switch("voice_override", voice_on, "Answer voice messages"|t, "Voice messages are turned into text, then answered like any other message."|t) }}
     <div class="setting">
-      <label for="{{ key }}"><b>{{ label|t }}</b></label>
-      <input type="number" min="0" id="{{ key }}" name="{{ key }}" value="{{ live[key] }}" placeholder="{{ default|num }} ({{ 'default'|t }})">
-    </div>
-    {% endfor %}
-    <div class="setting">
-      <label for="voice-select"><b>{{ "Voice transcription"|t }}</b><small>{{ "Default follows the server config."|t }}</small></label>
-      {# Disabled until JS switches to advanced, so only one voice control submits. #}
-      <select id="voice-select" name="voice_override" data-voice-advanced disabled>
-        <option value="" {{ "selected" if voice_raw == "" }}>{{ "Default"|t }} ({{ ("on" if s.voice_transcribe else "off")|t }})</option>
-        <option value="on" {{ "selected" if voice_raw == "on" }}>{{ "On"|t }}</option>
-        <option value="off" {{ "selected" if voice_raw == "off" }}>{{ "Off"|t }}</option>
-      </select>
-    </div>
-  </fieldset>
-
-  <div class="actions"><button class="primary">{{ "Save changes"|t }}</button></div>
-</form>
-
-<form method="post" action="{{ root }}/settings/config" class="sheet">
-  <fieldset class="group">
-    <legend>{{ "About you"|t }}</legend>
-    <p class="group-hint">{{ "The name the secretary uses for you in replies."|t }}</p>
-    <div class="setting">
-      <label for="OWNER_FIRST_NAME"><b>{{ "Your first name"|t }}</b></label>
+      <label for="OWNER_FIRST_NAME"><b>{{ "Your first name"|t }}</b><small>{{ "The name the secretary uses for you in replies."|t }}</small></label>
       <input id="OWNER_FIRST_NAME" name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required>
     </div>
-  </fieldset>
+    <a class="redo" href="{{ root }}/prompts#about_me">
+      <span class="grow"><b>{{ "Redo my introduction"|t }}</b><small>{{ "About you, how you write, and what the secretary must never do."|t }}</small></span>
+      {{ icon("chevron_left", 22) }}
+    </a>
+  </div>
+  <div class="actions" data-nojs-submit style="padding-top:0"><button class="primary">{{ "Save changes"|t }}</button></div>
+</form>
 
-  <fieldset class="group advanced">
-    <legend>{{ "Models"|t }}</legend>
-    <p class="group-hint">{{ "OpenRouter model ids. Saved to .env (the old one is backed up)."|t }}</p>
+<details class="card tech-set">
+  <summary>
+    {{ icon("code", 20) }}
+    <span class="grow"><b>{{ "Technical settings"|t }}</b><small>{{ "Only if you know what each one does"|t }}</small></span>
+    <span class="more">{{ icon("expand_more", 22) }}</span><span class="less">{{ icon("expand_less", 22) }}</span>
+  </summary>
+
+  <form method="post" action="{{ root }}/settings/live" data-autosave
+        data-saved="{{ 'Saved'|t }}" data-failed="{{ 'Couldn\'t save. Try again.'|t }}">
+    <h3 class="sec">{{ "Timing"|t }}</h3>
+    {% for key, label, default, value in live_ints %}
+    <div class="setting">
+      <label for="{{ key }}"><b>{{ label|t }}</b></label>
+      <input type="number" min="0" id="{{ key }}" name="{{ key }}" value="{{ value }}" placeholder="{{ default|num }} ({{ 'default'|t }})">
+    </div>
+    {% endfor %}
+    <div class="save" data-nojs-submit><button>{{ "Save changes"|t }}</button></div>
+  </form>
+
+  <form method="post" action="{{ root }}/settings/config">
     <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
+    <h3 class="sec">{{ "Models"|t }}</h3>
+    <p class="muted" style="margin:0"><small>{{ "OpenRouter model ids. Saved to .env (the old one is backed up)."|t }}</small></p>
     <div class="setting"><label for="OPENROUTER_MODEL"><b>{{ "Reply model"|t }}</b></label>
       <input id="OPENROUTER_MODEL" name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" dir="ltr" required></div>
     <div class="setting"><label for="EXTRACTOR_MODEL"><b>{{ "Extractor model"|t }}</b></label>
@@ -112,38 +121,17 @@
       <input id="WHISPER_MODEL" name="WHISPER_MODEL" value="{{ s.whisper_model }}" dir="ltr" required></div>
     <div class="setting"><label for="HISTORY_TURNS"><b>{{ "History turns per reply"|t }}</b></label>
       <input type="number" min="1" max="100" id="HISTORY_TURNS" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></div>
-  </fieldset>
-  {% if not hosted %}
-  <fieldset class="group advanced">
-    <legend>{{ "Needs a restart"|t }}</legend>
-    <p class="group-hint">{{ "These take effect after a restart."|t }}</p>
+    {% if not hosted %}
+    <h3 class="sec">{{ "Needs a restart"|t }}</h3>
+    <p class="muted" style="margin:0"><small>{{ "These take effect after a restart."|t }}</small></p>
     <div class="setting"><label for="TG_BOT_TOKEN"><b>{{ "Telegram bot token"|t }}</b></label>
       <input type="password" id="TG_BOT_TOKEN" name="TG_BOT_TOKEN" placeholder="{{ s.tg_bot_token|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off" dir="ltr"></div>
     <div class="setting"><label for="OPENROUTER_API_KEY"><b>{{ "OpenRouter API key"|t }}</b></label>
       <input type="password" id="OPENROUTER_API_KEY" name="OPENROUTER_API_KEY" placeholder="{{ s.openrouter_api_key|mask }} ({{ 'blank keeps it'|t }})" autocomplete="off" dir="ltr"></div>
     <div class="setting"><label for="OWNER_USER_ID"><b>{{ "Owner user id"|t }}</b></label>
       <input id="OWNER_USER_ID" name="OWNER_USER_ID" value="{{ s.owner_user_id }}" inputmode="numeric" dir="ltr" required></div>
-  </fieldset>
-  {% endif %}
-
-  <div class="actions"><button class="primary">{{ "Save changes"|t }}</button></div>
-</form>
-
-<script>
-  (function () {
-    const root = document.documentElement, toggle = document.getElementById("adv-toggle");
-    function apply(on) {
-      root.classList.toggle("adv", on);
-      toggle.checked = on;
-      // Exactly one voice control submits: the switch in simple view, the three-way select in advanced.
-      document.querySelectorAll("[data-voice-simple]").forEach((el) => { el.disabled = on; });
-      document.querySelector("[data-voice-advanced]").disabled = !on;
-    }
-    apply(root.classList.contains("adv"));
-    toggle.addEventListener("change", () => {
-      apply(toggle.checked);
-      try { localStorage.setItem("dash-advanced", toggle.checked ? "1" : "0"); } catch (e) {}
-    });
-  })();
-</script>
+    {% endif %}
+    <div class="save"><button class="primary">{{ "Save changes"|t }}</button></div>
+  </form>
+</details>
 {% endblock %}

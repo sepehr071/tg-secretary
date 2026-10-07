@@ -1,17 +1,43 @@
 """HITL drafts: send, edit-and-send, or skip pending replies from the browser."""
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Form, Request
 
 from .. import commands, db
-from .web import back, render, t
+from .contacts import RELATIONSHIPS, display_name
+from .web import back, fa_digits, render, t
 
 router = APIRouter()
 
 
+def _left(seconds: float) -> str:
+    m = max(1, int(seconds // 60))
+    n, unit = (m // 60, "h") if m >= 60 else (m, "m")
+    return fa_digits(f"{n} {t(unit)}")
+
+
 @router.get("/drafts")
 async def drafts(request: Request):
-    return render(request, "drafts.html", drafts=await db.list_open_pending())
+    chats = {c["chat_id"]: c for c in await db.list_chats()}
+    approval = await db.get_state_bool("approval_mode")
+    now = time.time()
+    rows = await db.list_open_pending()
+    for d in rows:
+        chat = chats.get(d["chat_id"], {})
+        rel = chat.get("relationship") or ""
+        d["name"] = d["contact_name"] or (display_name(chat) if chat else str(d["chat_id"]))
+        d["rel"] = rel
+        d["left"] = _left(d["expires_at"] - now)
+        # ponytail: no reason column is stored, so infer it from the current settings and the contact's group.
+        if approval:
+            d["reason"] = t("You asked to approve every reply first")
+        elif rel in ("gf", "family", "bff", "close_friend"):
+            d["reason"] = t("Sensitive message from {rel}").replace("{rel}", t(RELATIONSHIPS[rel]))
+        else:
+            d["reason"] = t("Held for your OK")
+    return render(request, "drafts.html", drafts=rows)
 
 
 @router.post("/drafts/{pid}")

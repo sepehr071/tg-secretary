@@ -178,7 +178,7 @@ async def check_status(app) -> None:
     async with await authed(app) as c:
         r = await c.get("/")
         assert r.status_code == 200, r.text
-        assert "@smoke_bot" in r.text and "$4.20 left" in r.text
+        assert "@smoke_bot" in r.text and "4.20 of 5.20 dollars" in r.text and "about 525 more replies" in r.text
         assert TOKEN not in r.text and KEY not in r.text
         # Review focus 4: a failing credit lookup must not break the page.
         real = setup.or_key_info
@@ -214,30 +214,29 @@ async def check_settings(app) -> None:
         assert r.status_code == 200
         assert TOKEN not in r.text and KEY not in r.text and setup.mask(TOKEN) in r.text
 
-        # Simple view vs advanced: technical fields only inside the advanced groups.
+        # Simple view vs technical: the .env/advanced fields live only inside the collapsed block.
         import re
-        adv = "".join(re.findall(r'<fieldset class="group advanced">.*?</fieldset>', r.text, re.S))
-        simple = re.sub(r'<fieldset class="group advanced">.*?</fieldset>', "", r.text, flags=re.S)
+        adv = "".join(re.findall(r'<details class="card tech-set">.*?</details>', r.text, re.S))
+        simple = re.sub(r'<details class="card tech-set">.*?</details>', "", r.text, flags=re.S)
         for name in ("away_delay_override", "cooldown_override", "OPENROUTER_MODEL", "EXTRACTOR_MODEL",
                      "WHISPER_MODEL", "HISTORY_TURNS", "TG_BOT_TOKEN", "OPENROUTER_API_KEY", "OWNER_USER_ID"):
             assert f'name="{name}"' in adv and f'name="{name}"' not in simple, name
-        for name in ("paused", "approval_mode", "innercircle_gate", "delay_override", "quiet_start", "OWNER_FIRST_NAME"):
+        for name in ("enabled", "approval_mode", "innercircle_gate", "delay_override", "quiet_start", "OWNER_FIRST_NAME"):
             assert f'name="{name}"' in simple, name
-        assert "Advanced settings" in r.text and 'id="adv-toggle"' in r.text
-        assert "<select" in adv and "data-voice-advanced disabled" in adv  # only the switch submits by default
+        assert 'name="_full" value="1"' in simple and 'data-autosave' in simple
 
         # Voice switch: orig carries the effective value, so an untouched switch writes nothing.
         await db.set_state("voice_override", "")
         settings.voice_transcribe = True
         r = await c.get("/settings")
-        assert 'name="orig_voice_override" value="on"' in r.text
+        assert 'name="voice_override" value="on" checked' in r.text  # effective value shown
         on, off = ["off", "on"], ["off"]  # hidden "off" + checkbox "on" when checked; last value wins
         r = await c.post("/settings/live", data={"orig_voice_override": "on", "voice_override": on})
         assert "err" not in r.headers["location"] and await db.get_state("voice_override") == ""
         await c.post("/settings/live", data={"orig_voice_override": "on", "voice_override": off})
         assert await db.get_state("voice_override") == "off"
         r = await c.get("/settings")
-        assert 'name="orig_voice_override" value="off"' in r.text
+        assert 'name="voice_override" value="on" checked' not in r.text
         await c.post("/settings/live", data={"orig_voice_override": "off", "voice_override": on})
         assert await db.get_state("voice_override") == "on"
         # Advanced three-way select still accepts "" (back to default).
@@ -246,7 +245,7 @@ async def check_settings(app) -> None:
 
         # Live group writes the same bot_state keys the /commands use.
         r = await c.post("/settings/live", data={
-            "paused": "on", "voice_override": "off", "quiet_start": "23:00", "quiet_end": "08:00",
+            "_full": "1", "paused": "on", "voice_override": "off", "quiet_start": "23:00", "quiet_end": "08:00",
             "delay_override": "45", "away_delay_override": "", "cooldown_override": "",
         })
         assert r.status_code == 303 and "err" not in r.headers["location"]
@@ -264,7 +263,7 @@ async def check_settings(app) -> None:
         # save must not wipe it. A /pause sent after the page loaded must survive too.
         await db.set_state("quiet_start", "1:00")
         r = await c.get("/settings")
-        assert 'value="01:00"' in r.text and 'name="orig_quiet_start" value="01:00"' in r.text
+        assert 'value="01:00"' in r.text and 'name="quiet_on" value="on" checked' in r.text
         await db.set_state_bool("paused", True)  # /pause from the phone, after page load
         page_state = {  # what the browser submits: originals as rendered, only approval toggled
             "orig_paused": "off", "orig_approval_mode": "off", "approval_mode": "on",
@@ -316,6 +315,61 @@ async def check_settings(app) -> None:
         assert r.status_code == 200 and STOPS == [1]
 
 
+async def check_home_settings(app) -> None:
+    import re
+
+    async with await authed(app) as c:
+        # Home master switch: only pauses/unpauses, never touches other settings.
+        await db.set_state("delay_override", "120")
+        await db.set_state_bool("approval_mode", True)
+        await db.set_state_bool("paused", False)
+        r = await c.post("/settings/master", data={})  # unchecked box posts nothing
+        assert r.status_code == 303 and "err" not in r.headers["location"]
+        assert await db.get_state_bool("paused")
+        r = await c.post("/settings/master", data={"enabled": "on"})
+        assert not await db.get_state_bool("paused")
+        assert await db.get_state("delay_override") == "120" and await db.get_state_bool("approval_mode")
+        r = await c.get("/")
+        assert "name=\"enabled\"" in r.text and "checked" in r.text.split('name="enabled"')[1][:80]
+
+        # Main settings form: an unchecked checkbox (absent) turns that setting off ...
+        r = await c.post("/settings/live", data={"_full": "1", "enabled": "on", "delay_override": "300"})
+        assert "err" not in r.headers["location"]
+        assert not await db.get_state_bool("approval_mode") and not await db.get_state_bool("innercircle_gate", default=True)
+        assert not await db.get_state_bool("paused") and await db.get_state("delay_override") == "300"
+        # ... and the segmented delay shows 5 minutes selected; a custom value stays visible.
+        r = await c.get("/settings")
+        assert re.search(r'value="300" checked', r.text)
+        await db.set_state("delay_override", "45")
+        r = await c.get("/settings")
+        assert re.search(r'value="45" checked', r.text) and 'value="10"' in r.text
+        # Quiet switch off clears both times; on keeps them.
+        await c.post("/settings/live", data={"_full": "1", "enabled": "on", "quiet_on": ["off", "on"],
+                                             "quiet_start": "22:00", "quiet_end": "06:30"})
+        assert await db.get_state("quiet_start") == "22:00" and await db.get_state("quiet_end") == "06:30"
+        await c.post("/settings/live", data={"_full": "1", "enabled": "on", "quiet_on": "off",
+                                             "quiet_start": "22:00", "quiet_end": "06:30"})
+        assert await db.get_state("quiet_start") == "" and await db.get_state("quiet_end") == ""
+        # A partial post (technical timing form) leaves everything else alone.
+        await db.set_state_bool("approval_mode", True)
+        await db.set_state_bool("paused", True)
+        r = await c.post("/settings/live", data={"away_delay_override": "20", "cooldown_override": ""})
+        assert "err" not in r.headers["location"] and await db.get_state("away_delay_override") == "20"
+        assert await db.get_state_bool("approval_mode") and await db.get_state_bool("paused")
+        assert await db.get_state("delay_override") == "45"
+        await db.set_state_bool("paused", False)
+        await db.set_state_bool("approval_mode", False)
+        # First name saves from the same form; a technical-only config post leaves it alone.
+        r = await c.post("/settings/live", data={"OWNER_FIRST_NAME": "Zed"})
+        assert "err" not in r.headers["location"] and settings.owner_first_name == "Zed"
+        assert "err=" in (await c.post("/settings/live", data={"OWNER_FIRST_NAME": " "})).headers["location"]
+        r = await c.post("/settings/config", data={"HISTORY_TURNS": "25"})
+        assert "err=" not in r.headers["location"] and settings.history_turns == 25 and settings.owner_first_name == "Zed"
+        # Home with a drafts banner, untagged nudge and reply pairs.
+        r = await c.get("/")
+        assert r.status_code == 200 and "Hi Zed" in r.text and "hey" in r.text
+
+
 async def check_contacts(app) -> None:
     async with await authed(app) as c:
         r = await c.get("/contacts")
@@ -355,7 +409,7 @@ async def check_prompts(app) -> None:
     (personas / "friend.example.txt").write_text("EXAMPLE FRIEND TEXT", encoding="utf-8")
     (settings.prompts_dir / "about_me.example.txt").write_text("ABOUT ME TEMPLATE <your name>", encoding="utf-8")
     async with await authed(app) as c:
-        r = await c.get("/prompts")
+        r = await c.get("/prompts", params={"g": "friend"})  # one group per page now
         assert r.status_code == 200 and "EXAMPLE FRIEND TEXT" in r.text and "about_me" in r.text
         # Re-graded review minor: the loader never falls back to about_me.example.txt, so
         # pre-filling it would let one Save inject template text into every prompt.
@@ -368,6 +422,63 @@ async def check_prompts(app) -> None:
         assert (await c.post("/prompts/..%5Cx", data={"text": "x"})).status_code == 404
         assert not (settings.prompts_dir / "nope.txt").exists()
         assert (personas / "friend.example.txt").read_text(encoding="utf-8") == "EXAMPLE FRIEND TEXT"
+
+# --- redesign: contacts + tone ---
+async def check_contacts_tone(app) -> None:
+    import json, re
+    from secretary import prompts
+    tone_file = settings.prompts_dir / "tone.json"
+    assert str(settings.prompts_dir).startswith(str(_tmp))  # never the real prompts/
+    async with await authed(app) as c:
+        for flt in ("all", "unknown", "close", "work", "paused", "bogus"):
+            r = await c.get("/contacts", params={"filter": flt})
+            assert r.status_code == 200, flt
+        # chat 5 was tagged bff + paused by check_contacts
+        assert "/contacts/5" in (await c.get("/contacts", params={"filter": "close"})).text
+        assert "/contacts/5" in (await c.get("/contacts", params={"filter": "paused"})).text
+        assert "/contacts/5" not in (await c.get("/contacts", params={"filter": "unknown"})).text
+        assert "/contacts/5" not in (await c.get("/contacts", params={"filter": "work"})).text
+
+        # sheet route: group + pause only, nickname survives
+        r = await c.post("/contacts/5/quick", data={"relationship": "work"})
+        assert r.status_code == 303 and "err" not in r.headers["location"]
+        o = await db.get_override(conn_id="c1", chat_id=5)
+        assert (o["relationship"], o["paused"], o["nickname"]) == ("work", 0, "Sami")
+        assert "err=" in (await c.post("/contacts/5/quick", data={"relationship": "boss"})).headers["location"]
+        assert "/contacts/5" in (await c.get("/contacts", params={"filter": "work"})).text
+
+        # tone pickers
+        for g in ("gf", "unknown", "nope"):
+            assert (await c.get("/prompts", params={"g": g})).status_code == 200
+        r = await c.post("/tone/gf", data={"tone": "0", "len": "1", "emoji": "2"})
+        assert r.status_code == 303 and "err" not in r.headers["location"] and "g=gf" in r.headers["location"]
+        assert json.loads(tone_file.read_text(encoding="utf-8"))["gf"] == {"tone": 0, "len": 1, "emoji": 2}
+        assert prompts.tone_for("gf") == {"tone": 0, "len": 1, "emoji": 2}
+        assert "err=" in (await c.post("/tone/gf", data={"tone": "9", "len": "0", "emoji": "0"})).headers["location"]
+        assert "err=" in (await c.post("/tone/gf", data={"tone": "x", "len": "0", "emoji": "0"})).headers["location"]
+        assert (await c.post("/tone/nope", data={"tone": "1", "len": "0", "emoji": "0"})).status_code == 404
+
+        r = await c.post("/tone/never", data={"never": ["promise", "money"]})
+        assert r.status_code == 303 and "err" not in r.headers["location"]
+        assert json.loads(tone_file.read_text(encoding="utf-8"))["never"] == ["promise", "money"]
+        assert "gf" in json.loads(tone_file.read_text(encoding="utf-8"))  # merge kept the group
+        assert "err=" in (await c.post("/tone/never", data={"never": ["bogus"]})).headers["location"]
+        page = (await c.get("/prompts", params={"g": "gf"})).text
+        import html
+        m = re.search(r'data-previews="([^"]*)"', page)
+        assert m and len(json.loads(html.unescape(m.group(1)))) == 18
+        assert 'value="promise" checked' in page and 'value="meet" checked' not in page
+        await c.post("/tone/never", data={})
+        assert json.loads(tone_file.read_text(encoding="utf-8"))["never"] == []
+
+        assert (await c.post("/tone/gf/reset")).status_code == 303
+        assert "gf" not in json.loads(tone_file.read_text(encoding="utf-8"))
+        assert prompts.tone_for("gf") == prompts.TONE_DEFAULTS["gf"]
+        assert (await c.post("/tone/nope/reset")).status_code == 404
+
+        # persona text keeps the chosen group on redirect
+        r = await c.post("/prompts/friend", data={"text": "x", "g": "friend"})
+        assert "g=friend" in r.headers["location"]
 
 
 async def check_drafts(app) -> None:
@@ -465,7 +576,7 @@ async def check_persian() -> None:
                                 "Advanced settings", "Wait before replying"):
                     assert english not in r.text, (path, english)
             r = await c.get("/settings")
-            assert "تنظیمات پیشرفته" in r.text and "TG_BOT_TOKEN" not in r.text  # hosted: no token field
+            assert "تنظیمات فنی" in r.text and "TG_BOT_TOKEN" not in r.text  # hosted: no token field
             r = await c.post("/settings/config", data={"HISTORY_TURNS": ""})
             assert "err=" in r.headers["location"] and "%D9" in r.headers["location"]  # Persian flash
         assert web.t("never-translated-xyz") == "never-translated-xyz"
@@ -564,8 +675,10 @@ async def main() -> None:
         await check_port_busy()
         await check_status(app)
         await check_settings(app)
+        await check_home_settings(app)
         await check_contacts(app)
         await check_prompts(app)
+        await check_contacts_tone(app)
         await check_drafts(app)
         await check_hosted()
         await check_proxy_ok_empty_secret()

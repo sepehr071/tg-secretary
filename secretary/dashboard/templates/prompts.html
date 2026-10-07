@@ -1,25 +1,114 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, segmented, chip_pick %}
 {% block content %}
-<h1>{{ "Prompts"|t }}</h1>
-<div class="lead">
-  <p>{{ "Here you tell the secretary how to talk. Write in plain words, the way you'd explain it to a friend who answers for you."|t }}</p>
-  <p>{{ "\"About me\" is used in every reply. Each of the other boxes is for one group of people: whoever you mark as that relationship on their contact page gets that style."|t }}</p>
-  <p>{{ "Wherever you write"|t }} <code dir="ltr">{owner_first_name}</code>{{ ", your first name goes in its place."|t }}</p>
-</div>
-{% for p in items %}
-<details class="card prompt" {{ "open" if loop.first }}>
-  <summary>
-    <strong>{{ p.label|t }}</strong>
-    <small>{{ p.source|t }}</small>
-  </summary>
-  <p class="hint">{% if p.name == "about_me" %}{{ "Facts about you that any reply may need: what you do, where you live, what you're busy with these days."|t }}{% elif p.name == "unknown" %}{{ "How to talk to people you haven't put in a group yet."|t }}{% else %}{{ "How to talk to people you marked as:"|t }} {{ p.label|t }}{% endif %}</p>
-  <form method="post" action="{{ root }}/prompts/{{ p.name }}">
-    <textarea name="text" rows="12" dir="auto" aria-label="{{ p.label|t }}">{{ p.text }}</textarea>
-    <div class="row">
-      <button class="primary">{{ "Save"|t }}</button>
-      <small>{% if p.name != "about_me" %}{{ "Leave it empty and save to go back to the ready-made sample."|t }}{% else %}{{ "Leave it empty and save to remove it."|t }}{% endif %}</small>
+<style>
+.about-card .head { display: flex; align-items: center; gap: 12px; }
+.about-card .badge-ic { flex: none; width: 40px; height: 40px; border-radius: 13px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+.about-card .head .grow { flex: 1; display: flex; flex-direction: column; line-height: 1.5; }
+.about-card details { margin: 0; }
+.about-card summary { list-style: none; cursor: pointer; border-radius: 14px; }
+.about-card .edit { min-height: 40px; padding: 0 14px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 700; display: inline-flex; align-items: center; }
+.about-card summary::-webkit-details-marker { display: none; }
+.about-card summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.about-card details[open] .when-closed, .about-card details:not([open]) .when-open { display: none; }
+.about-card p.view { margin: 8px 0 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: oklch(.65 .15 var(--h)); }
+.dot.none { background: #b5b3c4; }
+.chips .chip small { opacity: .75; }
+.tone-card { padding: 20px 18px; border-radius: 26px; display: flex; flex-direction: column; gap: 16px; }
+.tone-card h2 { margin: 0; }
+.tone-card .axis { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.tone-card .axis > b { font-size: 14px; }
+.preview .bubble-them, .preview .bubble-me { margin: 0; }
+.preview .bubbles { gap: 8px; }
+.opt { font-weight: 400; color: var(--muted); }
+.save-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.save-line .auto { display: flex; align-items: center; gap: 6px; color: var(--ok); }
+button.reset { min-height: 40px; padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 13.5px; text-decoration: underline; text-underline-offset: 4px; }
+.never .chip { min-height: 44px; }
+.never .chips label.chip:has(input:checked) { background: var(--danger-soft); border-color: rgba(178,58,48,.3); color: var(--danger); }
+</style>
+<div class="page-head"><div>
+  <h1>{{ "Secretary's tone"|t }}</h1>
+  <p class="lead">{{ "Tell the secretary how to talk to each group. You don't have to write anything, just pick."|t }}</p>
+</div></div>
+
+<section class="card about-card" id="about_me">
+  <details{{ " open" if not about.text }}>
+    <summary class="head">
+      <span class="badge-ic">{{ icon("person", 22) }}</span>
+      <span class="grow"><b>{{ "About me"|t }}</b><small class="muted">{{ "Used in every reply"|t }}</small></span>
+      <span class="edit"><span class="when-closed">{{ "Edit"|t }}</span><span class="when-open">{{ "Close"|t }}</span></span>
+    </summary>
+    {% if about.text %}<p class="view when-closed" dir="auto">{{ about.text }}</p>{% endif %}
+    <form method="post" action="{{ root }}/prompts/about_me" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}" class="when-open">
+      <p class="muted">{{ "What you do, where you live, what keeps you busy these days. Any reply may need it."|t }}</p>
+      <textarea name="text" rows="4" dir="auto" aria-label="{{ 'About me'|t }}">{{ about.text }}</textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" data-nojs-submit>{{ "Save"|t }}</button>
+        <small class="muted">{{ "Leave it empty and save to remove it."|t }}</small>
+      </div>
+    </form>
+  </details>
+</section>
+<script>
+if (location.hash === "#about_me") { const d = document.querySelector("#about_me details"); if (d) d.open = true; }
+</script>
+
+<b class="muted" style="display:block;padding:0 4px;margin:8px 0">{{ "Which group?"|t }}</b>
+<nav class="chips" aria-label="{{ 'Which group?'|t }}" style="margin-bottom:14px">
+  {% for key, label in relationships.items() %}
+  <a class="chip{{ ' chip--on' if key == g }}" href="{{ root }}/prompts?g={{ key }}"{% if key == g %} aria-current="true"{% endif %}>
+    <span class="dot{{ ' none' if key not in hues }}" style="--h:{{ hues.get(key, 0) }}"></span>{{ ("Everyone else" if key == "unknown" else label)|t }}</a>
+  {% endfor %}
+</nav>
+
+<section class="card tone-card">
+  <div style="display:flex;flex-direction:column;line-height:1.5">
+    <h2>{{ ("Everyone else" if g == "unknown" else relationships[g])|t }}</h2>
+    <span class="muted">{{ people|num }} {{ "people"|t }} &middot; {{ rel_desc[g]|t }}</span>
+  </div>
+
+  <form method="post" action="{{ root }}/tone/{{ g }}" id="tone-form" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}" style="display:flex;flex-direction:column;gap:16px">
+    <div class="axis"><b>{{ "Tone"|t }}</b>{{ segmented("tone", [(0, "Formal"|t), (1, "Normal"|t), (2, "Casual"|t)], tone.tone, "Tone"|t) }}</div>
+    <div class="axis"><b>{{ "Reply length"|t }}</b>{{ segmented("len", [(0, "Short"|t), (1, "Longer"|t)], tone.len, "Reply length"|t) }}</div>
+    <div class="axis"><b>{{ "Emoji"|t }}</b>{{ segmented("emoji", [(0, "None"|t), (1, "A few"|t), (2, "Lots"|t)], tone.emoji, "Emoji"|t) }}</div>
+    <button class="primary" data-nojs-submit>{{ "Save"|t }}</button>
+  </form>
+
+  <div class="preview">
+    <b>{{ icon("sparkle", 18) }}{{ "Preview: if someone in this group writes"|t }}</b>
+    <div class="bubbles">
+      <p class="bubble-them" dir="auto">سلام، فردا عصر وقت داری؟</p>
+      <p class="bubble-me" dir="auto" data-preview-for="tone-form" data-previews="{{ previews|tojson|forceescape }}">{{ previews[tone.tone ~ "-" ~ tone.len ~ "-" ~ tone.emoji] }}</p>
+    </div>
+  </div>
+
+  <form method="post" action="{{ root }}/prompts/{{ item.name }}" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}">
+    <input type="hidden" name="g" value="{{ g }}">
+    <label class="axis" for="extra" style="margin:0"><b>{{ "Anything else?"|t }} <span class="opt">({{ "optional"|t }})</span></b></label>
+    <textarea id="extra" name="text" rows="4" dir="auto" placeholder="{{ 'For example: call her dear, keep work out of it.'|t }}">{{ item.text }}</textarea>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" data-nojs-submit>{{ "Save"|t }}</button>
+      <small class="muted">{{ item.source|t }} &middot; {{ "Empty it and the ready-made sample comes back"|t }}</small>
     </div>
   </form>
-</details>
-{% endfor %}
+
+  <div class="save-line">
+    <span class="auto">{{ icon("cloud_done", 17) }}{{ "Saves by itself"|t }}</span>
+    {% if customized %}
+    <form method="post" action="{{ root }}/tone/{{ g }}/reset" style="margin:0"><button class="reset">{{ "Back to the suggested style"|t }}</button></form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card never">
+  <h2>{{ "The secretary should never…"|t }}</h2>
+  <form method="post" action="{{ root }}/tone/never" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}">
+    <div class="chips">
+      {% for key, label, ic in never_choices %}{{ chip_pick("never", key, label|t, key in never, ic) }}{% endfor %}
+    </div>
+    <button class="primary" data-nojs-submit style="margin-top:12px">{{ "Save"|t }}</button>
+  </form>
+</section>
 {% endblock %}

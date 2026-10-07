@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, orb %}
 {% block content %}
-<section class="card narrow">
-<h1>{{ "Log in"|t }}</h1>
-<p>{{ "Send"|t }} <code>/dashboard</code> {{ "to your bot in Telegram to get a one-time login link."|t }}</p>
+<section class="card hero narrow">
+<div class="hero-head">{{ orb("ok", "lg") }}<div class="hero-text"><span class="hero-title">{{ "Log in"|t }}</span></div></div>
+<p class="muted" style="margin:0">{{ "Send"|t }} <code>/dashboard</code> {{ "to your bot in Telegram to get a one-time login link."|t }}</p>
 <form method="post" action="{{ root }}/login" id="login" class="row">
-  <input name="token" id="token" aria-label="{{ 'token from the link'|t }}" dir="ltr" placeholder="{{ 'token from the link'|t }}" autocomplete="off" required>
-  <button>{{ "Log in"|t }}</button>
+  <input name="token" id="token" aria-label="{{ 'token from the link'|t }}" dir="ltr" placeholder="{{ 'token from the link'|t }}" autocomplete="off" required style="flex:1 1 12rem">
+  <button class="btn-primary">{{ "Log in"|t }}</button>
 </form>
 </section>
 <script>

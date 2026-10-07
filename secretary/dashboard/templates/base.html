@@ -1,34 +1,60 @@
 <!doctype html>
+{% from "_ui.html" import icon, orb %}
 <html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'fa' else 'ltr' }}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#173f3a">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f4f9">
 <title>{{ "tg-secretary"|t }}</title>
 <link rel="stylesheet" href="{{ root }}/static/style.css">
+<script src="{{ root }}/static/app.js" defer></script>
 </head>
 <body>
 {% set path = request.url.path %}
-<header class="top">
-  <a class="brand" href="{{ root }}/">{{ "tg-secretary"|t }}</a>
-  {% if hosted %}<a class="top-link" href="/account">{{ "Your account"|t }}</a>{% endif %}
-  {% if request.state.pending is defined and not hosted %}
-  <form method="post" action="{{ root }}/logout" class="top-link"><button class="link">{{ "Log out"|t }}</button></form>
-  {% endif %}
-</header>
-{% if request.state.pending is defined %}
-<nav class="tabs" aria-label="{{ 'Sections'|t }}">
-  {% for href, label in (("/", "Status"), ("/drafts", "Drafts"), ("/contacts", "Contacts"), ("/prompts", "Prompts"), ("/settings", "Settings")) %}
+{% set authed = request.state.pending is defined %}
+{% set tabs = (("/", "Home", "home"), ("/drafts", "Waiting for you", "hourglass"), ("/contacts", "People", "group"), ("/prompts", "Secretary's tone", "graphic_eq"), ("/settings", "Settings", "tune")) %}
+<div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="shell{{ '' if authed else ' solo' }}">
+{% if authed %}
+<aside class="side">
+  <a class="brand" href="{{ root }}/">{{ orb(orb_state|default("ok"), "sm") }}<span>{{ "tg-secretary"|t }}</span></a>
+  <nav aria-label="{{ 'Sections'|t }}" style="display:contents">
+  {% for href, label, ic in tabs %}
   {% set here = path == href if href == "/" else path.startswith(href) %}
-  <a href="{{ root }}{{ href }}"{% if here %} aria-current="page"{% endif %}>{{ label|t }}
-    {%- if href == "/drafts" and request.state.pending %} <span class="badge">{{ request.state.pending|num }}</span>{% endif %}</a>
+  <a href="{{ root }}{{ href }}"{% if here %} aria-current="page"{% endif %}>{{ icon(ic, 22) }}<span class="grow">{{ label|t }}</span>
+    {%- if href == "/drafts" and request.state.pending %}<span class="badge">{{ request.state.pending|num }}</span>{% endif %}</a>
+  {% endfor %}
+  </nav>
+  <div class="foot">
+    <a href="{{ root }}/prompts#about_me">{{ icon("badge") }}{{ "Introduce myself"|t }}</a>
+    {% if hosted %}<a href="/account">{{ icon("account") }}{{ "Account and credit"|t }}</a>
+    {% else %}<form method="post" action="{{ root }}/logout"><button class="link">{{ icon("logout") }}{{ "Log out"|t }}</button></form>{% endif %}
+  </div>
+</aside>
+{% endif %}
+<div class="main">
+<header class="topbar">
+  <a class="brand" href="{{ root }}/">{{ orb(orb_state|default("ok"), "sm") }}<span>{{ "tg-secretary"|t }}</span></a>
+  {% if authed and hosted %}<a class="top-link" href="/account">{{ icon("account", 18) }}{{ "Account"|t }}</a>{% endif %}
+  {% if authed and not hosted %}<form method="post" action="{{ root }}/logout" style="margin:0"><button class="link">{{ icon("logout", 18) }}{{ "Log out"|t }}</button></form>{% endif %}
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</div>
+</div>
+{% if authed %}
+<nav class="tabbar" aria-label="{{ 'Sections'|t }}">
+  {% for href, label, ic in tabs %}
+  {% set here = path == href if href == "/" else path.startswith(href) %}
+  <a href="{{ root }}{{ href }}"{% if here %} aria-current="page"{% endif %}>{{ icon(ic, 24) }}<span>{{ label|t }}</span>
+    {%- if href == "/drafts" and request.state.pending %}<span class="badge">{{ request.state.pending|num }}</span>{% endif %}</a>
   {% endfor %}
 </nav>
 {% endif %}
-<main>
-{% if request.query_params.msg %}<p class="flash ok" role="status" dir="auto">{{ request.query_params.msg }}</p>{% endif %}
-{% if err or request.query_params.err %}<p class="flash err" role="alert" dir="auto">{{ err or request.query_params.err }}</p>{% endif %}
-{% block content %}{% endblock %}
-</main>
+{% set flash_err = err or request.query_params.err %}
+<div id="toast" class="toast{{ ' is-err' if flash_err }}" role="{{ 'alert' if flash_err else 'status' }}" dir="auto"
+  data-msg="{{ request.query_params.msg }}" data-err="{{ flash_err or '' }}"
+  {%- if not (request.query_params.msg or flash_err) %} hidden{% endif %}>{{ flash_err or request.query_params.msg }}</div>
 </body>
 </html>

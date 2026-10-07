@@ -1,29 +1,31 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, orb %}
 {% block main_class %}page wide{% endblock %}
 {% block content %}
-<section class="hero">
+<section class="hero-land">
   <div class="hero-text">
-    <h1>وقتی دستتان بند است، منشی جواب پیام&zwnj;ها را می&zwnj;دهد</h1>
-    <p class="lead">یک ربات تلگرام که به پیام&zwnj;های خصوصی شما، با لحن خودتان و از طرف خودتان، پاسخ می&zwnj;دهد. شما انتخاب می&zwnj;کنید به کدام چت&zwnj;ها دسترسی داشته باشد و هر پاسخی که می&zwnj;فرستد را در همان چت می&zwnj;بینید.</p>
+    {{ orb("ok", 64) }}
+    <h1>وقتی دستت بنده، منشی جواب پیام&zwnj;ها را می&zwnj;دهد</h1>
+    <p class="lead">یک ربات تلگرام که به پیام&zwnj;های خصوصی&zwnj;ات، با لحن خودت و از طرف خودت جواب می&zwnj;دهد. تو انتخاب می&zwnj;کنی به کدام چت&zwnj;ها دسترسی داشته باشد و هر جوابی که می&zwnj;فرستد را در همان چت می&zwnj;بینی.</p>
     {% if user %}
-    <a class="btn" href="/account">رفتن به حساب کاربری</a>
+    <a class="btn btn-primary" href="/account">{{ icon("person", 20) }}رفتن به حساب من</a>
     {% else %}
-    <a class="btn" href="/login">ورود با تلگرام</a>
+    <a class="btn btn-primary" href="/login">{{ icon("send", 20) }}ورود با تلگرام</a>
     {% endif %}
   </div>
-  <figure class="chat" aria-label="نمونه&zwnj;ی یک گفتگو">
-    <p class="bubble in">سلام، فردا عصر وقت داری یه سر بزنیم به نمایشگاه؟</p>
-    <p class="bubble out">سلام! فردا تا شش سر کارم، از هفت به بعد آزادم. هفت خوبه؟</p>
-    <figcaption>پاسخ منشی، با لحن شما، چند ثانیه بعد</figcaption>
+  <figure class="card chat" aria-label="نمونه&zwnj;ی یک گفتگو">
+    <p class="bubble-them">سلام، فردا عصر وقت داری یه سر بزنیم به نمایشگاه؟</p>
+    <p class="bubble-me">سلام! فردا تا شش سر کارم، از هفت به بعد آزادم. هفت خوبه؟</p>
+    <figcaption>{{ icon("sparkle", 16) }}جواب منشی، با لحن تو، چند ثانیه بعد</figcaption>
   </figure>
 </section>
 
 <section class="how">
   <h2>چطور راه می&zwnj;افتد</h2>
-  <ol class="steps">
-    <li><strong>ورود با تلگرام</strong><span>با حساب تلگرام خودتان وارد می&zwnj;شوید؛ رمز جدیدی لازم نیست.</span></li>
-    <li><strong>معرفی خودتان</strong><span>چند خط درباره&zwnj;ی خودتان و طرز حرف زدنتان می&zwnj;نویسید.</span></li>
-    <li><strong>وصل کردن</strong><span>در تنظیمات تلگرام، بخش <bdi dir="ltr">Chat Automation</bdi>، ربات منشی را انتخاب می&zwnj;کنید و منشی کارش را شروع می&zwnj;کند.</span></li>
+  <ol class="how-steps">
+    <li class="card"><b>ورود با تلگرام</b><span>با همان حساب تلگرامت وارد می&zwnj;شوی. رمز جدیدی لازم نیست.</span></li>
+    <li class="card"><b>معرفی خودت</b><span>اسمت، چند خط درباره&zwnj;ات و طرز نوشتنت را می&zwnj;گویی. چهار قدم کوتاه است.</span></li>
+    <li class="card"><b>وصل کردن</b><span>در تنظیمات تلگرام، بخش <bdi dir="ltr">Chat Automation</bdi>، ربات منشی را انتخاب می&zwnj;کنی و منشی کارش را شروع می&zwnj;کند.</span></li>
   </ol>
 </section>
 {% endblock %}

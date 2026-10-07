@@ -1,22 +1,22 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, stage %}
 {% block title %}شرایط استفاده | منشی تلگرام{% endblock %}
 {% block content %}
-<p class="stage">مرحله&zwnj;ی ۱ از ۳</p>
-<h1>پیش از شروع</h1>
-<div class="terms">
-  <p><strong>پیش از شروع، این&zwnj;ها را بدانید:</strong></p>
+{{ stage(1, "شرایط") }}
+<h1>قبل از شروع، این&zwnj;ها را بدان</h1>
+<div class="card terms">
   <ul>
-    <li>این سرویس با ربات منشی به پیام&zwnj;های خصوصی شما در تلگرام، از طرف شما پاسخ می&zwnj;دهد. شما در تنظیمات تلگرام انتخاب می&zwnj;کنید به کدام چت&zwnj;ها دسترسی داشته باشد.</li>
-    <li>برای نوشتن پاسخ، متن پیام&zwnj;ها و پیام&zwnj;های صوتی (پس از تبدیل به متن) به مدل&zwnj;های هوش مصنوعی از طریق سرویس <bdi>OpenRouter</bdi> فرستاده می&zwnj;شود.</li>
-    <li>تاریخچه&zwnj;ی گفتگو و خلاصه&zwnj;ای از هر مخاطب روی سرور ما ذخیره می&zwnj;شود تا پاسخ&zwnj;ها شبیه شما باشد. این داده برای هیچ کار دیگری استفاده نمی&zwnj;شود و به کسی فروخته نمی&zwnj;شود.</li>
-    <li>هر زمان بخواهید با «حذف حساب» همه&zwnj;ی داده&zwnj;های شما پاک و منشی خاموش می&zwnj;شود.</li>
-    <li>ربات هیچ کاری را از شما پنهان نمی&zwnj;کند؛ همه&zwnj;ی پاسخ&zwnj;ها در چت&zwnj;های خودتان دیده می&zwnj;شوند.</li>
-    <li>اگر این شرایط تغییر کند، پیش از اعمال به شما اطلاع می&zwnj;دهیم.</li>
+    <li>این سرویس با ربات منشی به پیام&zwnj;های خصوصی&zwnj;ات در تلگرام، از طرف تو جواب می&zwnj;دهد. در تنظیمات تلگرام خودت انتخاب می&zwnj;کنی به کدام چت&zwnj;ها دسترسی داشته باشد.</li>
+    <li>برای نوشتن جواب، متن پیام&zwnj;ها و پیام&zwnj;های صوتی (بعد از تبدیل به متن) به مدل&zwnj;های هوش مصنوعی از طریق سرویس <bdi>OpenRouter</bdi> فرستاده می&zwnj;شود.</li>
+    <li>تاریخچه&zwnj;ی گفتگو و خلاصه&zwnj;ای از هر مخاطب روی سرور ما ذخیره می&zwnj;شود تا جواب&zwnj;ها شبیه تو باشد. این داده برای هیچ کار دیگری استفاده نمی&zwnj;شود و به کسی فروخته نمی&zwnj;شود.</li>
+    <li>هر وقت بخواهی با «حذف حساب» همه&zwnj;ی داده&zwnj;هایت پاک و منشی خاموش می&zwnj;شود.</li>
+    <li>ربات هیچ کاری را از تو پنهان نمی&zwnj;کند؛ همه&zwnj;ی جواب&zwnj;ها در چت&zwnj;های خودت دیده می&zwnj;شوند.</li>
+    <li>اگر این شرایط عوض شود، قبل از اعمال خبرت می&zwnj;کنیم.</li>
   </ul>
   <p class="hint">نسخه&zwnj;ی {{ version }}</p>
 </div>
-<form class="panel" method="post" action="/onboard/consent">
-  <label class="check"><input type="checkbox" name="accept" value="1" required> این شرایط را خواندم و می&zwnj;پذیرم</label>
-  <button class="btn">پذیرفتن و ادامه</button>
+<form class="card" method="post" action="/onboard/consent">
+  <label class="check"><input type="checkbox" name="accept" value="1" required><span>شرایط را خواندم و می&zwnj;پذیرم</span></label>
+  <button class="btn btn-primary block">پذیرفتن و ادامه</button>
 </form>
 {% endblock %}

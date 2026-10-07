@@ -1,0 +1,30 @@
+{# Contacts/tone helpers. Usage: {% from "_groups.html" import group_picker, group_css %} #}
+{% from "_ui.html" import icon %}
+{% macro group_css() -%}
+<style>
+.grp-list { display: flex; flex-direction: column; gap: 6px; }
+.grp { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; margin: 0; padding: 6px 14px;
+  border-radius: 16px; border: 1px solid var(--line-2); background: rgba(255,255,255,.6); cursor: pointer; }
+.grp input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.grp .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: oklch(.65 .15 var(--h)); }
+.grp .dot.none { background: #b5b3c4; }
+.grp .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.5; }
+.grp .txt b { font-size: 14.5px; }
+.grp .txt small { font-size: 12.5px; color: var(--muted); }
+.grp .ic { color: transparent; flex: none; }
+.grp:has(input:checked) { background: var(--accent-soft); border-color: var(--accent-line); }
+.grp:has(input:checked) .ic { color: var(--accent); }
+.grp:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+</style>
+{%- endmacro %}
+{# Radio list of all groups with a description each, so people see what a group changes. #}
+{% macro group_picker(name, current, relationships, rel_desc, hues) -%}
+<div class="grp-list" role="radiogroup">
+  {%- for key, label in relationships.items() %}
+  <label class="grp"><input type="radio" name="{{ name }}" value="{{ key }}" data-label="{{ label|t }}"{{ ' checked' if key == current }}>
+    <span class="dot{{ ' none' if key not in hues }}" style="--h:{{ hues.get(key, 0) }}"></span>
+    <span class="txt"><b>{{ label|t }}</b><small>{{ rel_desc[key]|t }}</small></span>
+    {{ icon("check_circle", 22) }}</label>
+  {%- endfor %}
+</div>
+{%- endmacro %}

@@ -1,26 +1,28 @@
 <!doctype html>
+{% from "_ui.html" import icon, orb %}
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#173f3a">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f4f9">
 <title>{% block title %}منشی تلگرام{% endblock %}</title>
 <link rel="stylesheet" href="/hstatic/style.css">
 <script src="/hstatic/app.js" defer></script>
 </head>
 <body>
+<div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
 <header class="top">
-  <a class="brand" href="/">منشی تلگرام</a>
+  <a class="brand" href="/">{{ orb("ok", 32) }}<span>منشی تلگرام</span></a>
   {% if user %}
-  <nav class="top-nav">
-    <a href="/account">حساب کاربری</a>
-    <form method="post" action="/logout"><button class="link">خروج</button></form>
+  <nav class="top-nav" aria-label="منوی اصلی">
+    <a href="/account">{{ icon("person", 18) }}<span>حساب من</span></a>
+    <form method="post" action="/logout"><button class="link">{{ icon("logout", 18) }}<span>خروج</span></button></form>
   </nav>
   {% endif %}
 </header>
 <main class="{% block main_class %}page{% endblock %}">
-  {% if msg %}<p class="flash ok" role="status" dir="auto">{{ msg }}</p>{% endif %}
-  {% if err %}<p class="flash err" role="alert" dir="auto">{{ err }}</p>{% endif %}
+  {% if msg %}<p class="flash ok" role="status" dir="auto">{{ icon("check", 18) }}<span>{{ msg }}</span></p>{% endif %}
+  {% if err %}<p class="flash err" role="alert" dir="auto">{{ icon("info", 18) }}<span>{{ err }}</span></p>{% endif %}
   {% block content %}{% endblock %}
 </main>
 </body>

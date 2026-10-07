@@ -1,13 +1,14 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon %}
 {% block title %}مدیریت | منشی تلگرام{% endblock %}
 {% block main_class %}page full{% endblock %}
 {% block content %}
-{% set labels = {"draft": "پیش&zwnj;نویس", "awaiting_credit": "منتظر اعتبار", "running": "روشن", "stopped": "خاموش"} %}
+{% set labels = {"draft": "پیش‌نویس", "awaiting_credit": "منتظر اعتبار", "running": "روشن", "stopped": "خاموش"} %}
 <h1>مدیریت حساب&zwnj;ها</h1>
 {% if not rows %}
-<p class="lead">هنوز حسابی ساخته نشده.</p>
+<p class="card empty">هنوز حسابی ساخته نشده.</p>
 {% else %}
-<div class="table-wrap">
+<div class="card table-wrap">
 <table class="admin">
   <thead>
     <tr><th>شناسه</th><th>کاربر</th><th>وضعیت</th><th>مصرف / سقف (دلار)</th><th>پردازه</th><th>آخرین خطا</th><th>کارها</th></tr>
@@ -17,24 +18,24 @@
     <tr>
       <td>{{ r.id }}</td>
       <td><span dir="auto">{{ r.first_name or "—" }}</span><br><bdi class="hint" dir="ltr">{{ r.owner_tg_id }}</bdi></td>
-      <td><span class="tag tag-{{ r.status }}">{% if r.status in labels %}{{ labels[r.status]|safe }}{% else %}{{ r.status }}{% endif %}</span></td>
+      <td><span class="tag tag-{{ r.status }}">{% if r.status in labels %}{{ labels[r.status] }}{% else %}{{ r.status }}{% endif %}</span></td>
       <td><bdi dir="ltr">{{ "%.2f"|format(r.usage) if r.usage is not none else "—" }} / {{ "%.2f"|format(r.limit) if r.limit is not none else "—" }}</bdi></td>
       <td><bdi dir="ltr">{{ r.pm2_status }}</bdi><br><span class="hint">راه&zwnj;اندازی دوباره: {{ r.restarts }}</span></td>
       <td class="err-cell"><span dir="auto">{{ r.last_error or "—" }}</span></td>
       <td class="actions">
         <details>
-          <summary>ثبت پرداخت</summary>
+          <summary>{{ icon("add_card", 18) }}ثبت پرداخت</summary>
           <form method="post" action="/admin/payment" class="pay-form">
             <input type="hidden" name="tenant_id" value="{{ r.id }}">
             <input type="hidden" name="client_ref" value="{{ r.client_ref }}">
             <label>مبلغ (دلار)<input name="amount_usd" type="text" inputmode="decimal" dir="ltr" required></label>
             <label>مبلغ پرداخت&zwnj;شده<input name="paid_text" type="text" dir="auto"></label>
             <label>یادداشت<input name="note" type="text" dir="auto"></label>
-            <button class="btn">ثبت</button>
+            <button class="btn btn-primary">ثبت</button>
           </form>
         </details>
-        <form method="post" action="/admin/tenant/{{ r.id }}/restart"><button class="btn quiet small">راه&zwnj;اندازی دوباره</button></form>
-        <form method="post" action="/admin/tenant/{{ r.id }}/stop"><button class="btn quiet small">خاموش کردن</button></form>
+        <form method="post" action="/admin/tenant/{{ r.id }}/restart"><button class="btn btn-ghost small">راه&zwnj;اندازی دوباره</button></form>
+        <form method="post" action="/admin/tenant/{{ r.id }}/stop"><button class="btn btn-ghost small">خاموش کردن</button></form>
       </td>
     </tr>
   {% endfor %}

@@ -1,51 +1,68 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, avatar, switch %}
+{% from "_groups.html" import group_picker, group_css %}
 {% block content %}
-<p><a href="{{ root }}/contacts">{{ "Back to contacts"|t }}</a></p>
-<h1 dir="auto">{{ title }}
-  {% if o.tg_username and title != "@" ~ o.tg_username %}<small dir="ltr">@{{ o.tg_username }}</small>{% endif %}
-  {% if not hosted %}<small>{{ chat_id }}</small>{% endif %}
-</h1>
+{{ group_css() }}
+<style>
+.back { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--muted); text-decoration: none; }
+.who-head { display: flex; align-items: center; gap: 14px; margin: 0 0 12px; }
+.who-head h1 { margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.who-head small { display: block; color: var(--muted); font-size: 13px; font-weight: 400; }
+.field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
+.field > b { font-size: 14px; }
+.field > small { color: var(--muted); }
+.mem { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+.mem:first-child { border-top: 0; }
+.mem .fact { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.mem small { color: var(--muted); }
+.mem form { margin: 0; }
+.mems { list-style: none; margin: 0; padding: 0; }
+.mem-add { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.mem-add input { flex: 1 1 12rem; }
+.style dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 8px 0 0; }
+.style dd { margin: 0; }
+.style summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; }
+</style>
+<a class="back" href="{{ root }}/contacts">{{ icon("chevron_left", 18) }}{{ "Back to contacts"|t }}</a>
+<div class="who-head">
+  {{ avatar(title, o.relationship or "", "lg") }}
+  <h1 dir="auto">{{ title }}
+    {% if o.tg_username and title != "@" ~ o.tg_username %}<small dir="ltr">@{{ o.tg_username }}</small>{% endif %}
+    {% if not hosted %}<small>{{ chat_id }}</small>{% endif %}
+  </h1>
+</div>
 {% if o.paused %}<p class="flash warn">{{ "Auto-reply is off for this person. The secretary won't answer them until you turn it back on."|t }}</p>{% endif %}
 
-<form method="post" action="{{ root }}/contacts/{{ chat_id }}/profile" class="card">
+<form method="post" action="{{ root }}/contacts/{{ chat_id }}/profile" class="card" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}">
   <h2>{{ "Who is this?"|t }}</h2>
-  <label class="setting">
-    <span><b>{{ "Relationship"|t }}</b>
-      <small>{{ "The secretary talks to each group in its own way. You set how on the Prompts page."|t }}</small></span>
-    <select name="relationship">
-      {% for r, label in relationships.items() %}<option value="{{ r }}" {{ "selected" if (o.relationship or "unknown") == r }}>{{ label|t }}</option>{% endfor %}
-    </select>
-  </label>
-  <label class="setting">
-    <span><b>{{ "Nickname"|t }}</b>
-      <small>{{ "The name you use for them. Shown in this dashboard."|t }}</small></span>
+  <p class="muted">{{ "The secretary talks to each group in its own way. Pick the group and you see what it changes. You set the tone itself on the Tone page."|t }}</p>
+  {{ group_picker("relationship", o.relationship or "unknown", relationships, rel_desc, hues) }}
+  <label class="field">
+    <b>{{ "Nickname"|t }}</b>
+    <small>{{ "The name you use for them. Shown in this dashboard."|t }}</small>
     <input name="nickname" value="{{ o.nickname or '' }}" dir="auto">
   </label>
-  <label class="setting">
-    <span><b>{{ "Pause auto-replies in this chat"|t }}</b>
-      <small>{{ "The secretary stays quiet with this person; you answer them yourself."|t }}</small></span>
-    <input type="checkbox" name="paused" class="switch" {{ "checked" if o.paused }}>
-  </label>
-  <label class="stack">
+  {{ switch("paused", o.paused, "Pause auto-replies in this chat"|t, "The secretary stays quiet with this person; you answer them yourself."|t) }}
+  <label class="field">
     <b>{{ "A short note for the secretary"|t }}</b>
     <small>{{ "Anything to keep in mind with this person. For example: we work together, keep it polite."|t }}</small>
     <textarea name="persona_extra" rows="3" dir="auto">{{ o.persona_extra or '' }}</textarea>
   </label>
-  <button class="primary">{{ "Save"|t }}</button>
+  <button class="primary" data-nojs-submit>{{ "Save"|t }}</button>
 </form>
 
 <section class="card">
   <h2>{{ "What the secretary knows about them"|t }}</h2>
-  <p class="hint">{{ "It picks up facts from your chats and uses them in replies. Remove anything wrong, or add something yourself."|t }}</p>
+  <p class="muted">{{ "It picks up facts from your chats and uses them in replies. Remove anything wrong, or add something yourself."|t }}</p>
   {% if memories %}
-  <ul class="memories">
+  <ul class="mems">
     {% for m in memories %}
-    <li>
-      <span class="tag">{{ (kinds[m.kind] or m.kind)|t }}</span>
+    <li class="mem">
+      <span class="chip">{{ (kinds[m.kind] or m.kind)|t }}</span>
       <span class="fact" dir="auto">{{ m.content }}</span>
       <small>{{ m.created_at|ts }}</small>
       <form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory/{{ m.id }}/expire">
-        <button aria-label="{{ 'Remove'|t }}: {{ m.content }}">{{ "Remove"|t }}</button>
+        <button class="btn-sm" aria-label="{{ 'Remove'|t }}: {{ m.content }}">{{ "Remove"|t }}</button>
       </form>
     </li>
     {% endfor %}
@@ -53,21 +70,21 @@
   {% else %}
   <p class="empty">{{ "Nothing yet. It fills in as you chat."|t }}</p>
   {% endif %}
-  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory" class="row add-fact">
+  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/memory" class="mem-add">
     <label class="sr-only" for="kind">{{ "Kind"|t }}</label>
     <select id="kind" name="kind">{% for k, label in kinds.items() %}<option value="{{ k }}">{{ label|t }}</option>{% endfor %}</select>
     <label class="sr-only" for="content">{{ "New fact"|t }}</label>
     <input id="content" name="content" placeholder="{{ 'For example: has a cat named Mishi'|t }}" dir="auto" required>
-    <button>{{ "Add"|t }}</button>
+    <button class="btn-primary">{{ icon("add", 18) }}{{ "Add"|t }}</button>
   </form>
-  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/extract" class="row">
-    <button>{{ "Learn from recent messages now"|t }}</button>
-    <small>{{ "It does this on its own every so often. Use it if you want an update right away."|t }}</small>
+  <form method="post" action="{{ root }}/contacts/{{ chat_id }}/extract" class="row" style="margin-top:12px">
+    <button class="btn-sm">{{ icon("sparkle", 18) }}{{ "Learn from recent messages now"|t }}</button>
+    <small class="muted">{{ "It does this on its own every so often. Use it if you want an update right away."|t }}</small>
   </form>
   {% if style %}
   <details class="style">
     <summary>{{ "How you usually write to them"|t }}</summary>
-    <p class="hint">{{ "Learned from your own messages, so replies sound like you."|t }}</p>
+    <p class="muted">{{ "Learned from your own messages, so replies sound like you."|t }}</p>
     <dl>
       {% for label, v in style %}
       <dt>{{ label|t }}</dt>
@@ -78,27 +95,24 @@
   {% endif %}
 </section>
 
-<form method="post" action="{{ root }}/contacts/{{ chat_id }}/prompt" class="card">
+<form method="post" action="{{ root }}/contacts/{{ chat_id }}/prompt" class="card" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}">
   <h2>{{ "Detailed instructions for this person"|t }}</h2>
-  <p class="hint">{{ "Optional. Write in plain words how the secretary should talk to them and what to avoid. This is added on top of the group's style from the Prompts page."|t }}</p>
+  <p class="muted">{{ "Optional. Write in plain words how the secretary should talk to them and what to avoid. This is added on top of the group's style from the Tone page."|t }}</p>
   <textarea name="text" rows="8" dir="auto" aria-label="{{ 'Detailed instructions for this person'|t }}">{{ prompt_text }}</textarea>
-  <div class="row">
-    <button class="primary">{{ "Save"|t }}</button>
-    <small>{{ "Leave it empty to remove these instructions."|t }}{% if not hosted %} <span dir="ltr">prompts/contacts/{{ chat_id }}.txt</span>{% endif %}</small>
+  <div class="row" style="margin-top:8px">
+    <button class="primary" data-nojs-submit>{{ "Save"|t }}</button>
+    <small class="muted">{{ "Leave it empty to remove these instructions."|t }}{% if not hosted %} <span dir="ltr">prompts/contacts/{{ chat_id }}.txt</span>{% endif %}</small>
   </div>
 </form>
 
 <section class="card">
   <h2>{{ "Recent conversation"|t }}</h2>
   {% if history %}
-  <ol class="chat">
+  <div class="bubbles">
     {% for m in history %}
-    <li class="{{ 'them' if m.role == 'user' else 'you' }}">
-      <small>{{ ("them" if m.role == "user" else "you")|t }}</small>
-      <p dir="auto">{{ m.content }}</p>
-    </li>
+    <p class="{{ 'bubble-them' if m.role == 'user' else 'bubble-me' }}" dir="auto">{{ m.content }}</p>
     {% endfor %}
-  </ol>
+  </div>
   {% else %}<p class="empty">{{ "No messages yet."|t }}</p>{% endif %}
 </section>
 {% endblock %}

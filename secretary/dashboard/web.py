@@ -59,6 +59,27 @@ def ts(stamp: float | None) -> str:
     return fa_digits(f"{jd} {_JALALI_MONTHS[jm - 1]} {jy}، {lt.tm_hour:02d}:{lt.tm_min:02d}")
 
 
+def ago(stamp: float | None, now: float | None = None) -> str:
+    """Relative time ("۲ دقیقه پیش"); a week or older falls back to the full `ts` date."""
+    if not stamp:
+        return "—"
+    secs = int((now if now is not None else time.time()) - stamp)
+    fa = settings.dashboard_lang == "fa"
+    if secs < 60:
+        return "همین الان" if fa else "just now"
+    if secs < 3600:
+        n, fa_unit, en_unit = secs // 60, "دقیقه", "min"
+    elif secs < 86400:
+        n, fa_unit, en_unit = secs // 3600, "ساعت", "h"
+    elif secs < 2 * 86400:
+        return "دیروز" if fa else "yesterday"
+    elif secs < 7 * 86400:
+        n, fa_unit, en_unit = secs // 86400, "روز", "days"
+    else:
+        return ts(stamp)
+    return f"{fa_digits(n)} {fa_unit} پیش" if fa else f"{n} {en_unit} ago"
+
+
 def t(text: str) -> str:
     return FA.get(text, text) if settings.dashboard_lang == "fa" else text
 
@@ -67,6 +88,12 @@ def t(text: str) -> str:
 templates.env.filters["t"] = pass_context(lambda _ctx, text: t(text))
 templates.env.filters["num"] = pass_context(lambda _ctx, v: fa_digits(v))
 templates.env.filters["ts"] = pass_context(lambda _ctx, v: ts(v))
+templates.env.filters["ago"] = pass_context(lambda _ctx, v: ago(v))
+
+
+assert ago(1000, now=1000 + 120) in ("۲ دقیقه پیش", "2 min ago")
+assert ago(1000, now=1000 + 86400 + 5) in ("دیروز", "yesterday") and ago(1000, now=1010) in ("همین الان", "just now")
+assert ago(1000, now=1000 + 3 * 86400) in ("۳ روز پیش", "3 days ago")
 
 
 def render(request: Request, name: str, status_code: int = 200, **context: Any) -> HTMLResponse:

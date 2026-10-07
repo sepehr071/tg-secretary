@@ -1,39 +1,133 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, avatar, switch %}
+{% from "_groups.html" import group_picker, group_css %}
 {% block content %}
-<h1>{{ "Contacts"|t }}</h1>
-<p class="lead">{{ "Everyone who has messaged you. Open a person to tell the secretary who they are and how to talk to them."|t }}</p>
+{{ group_css() }}
+<style>
+.filters { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; margin: 12px 0; }
+.filters .chip { flex: none; }
+.filters .chip small { font-size: 12px; opacity: .75; }
+.finder { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 8px 0 16px; border-radius: 18px; background: var(--glass); border: 1px solid var(--glass-line); }
+.finder input { flex: 1; min-width: 0; border: 0 !important; background: none !important; box-shadow: none !important; }
+.finder .ic { color: var(--faint); flex: none; }
+.finder button { min-height: 40px; }
+.people .row-item { padding-inline: 10px; }
+.people .who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+.people .who small { display: flex; gap: 8px; flex-wrap: wrap; white-space: normal; overflow: visible; }
+.people .quiet { display: inline-flex; align-items: center; gap: 2px; color: var(--danger); }
+.relpill { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 12px; border-radius: 99px; font-size: 13px; text-decoration: none;
+  background: oklch(.92 .05 var(--h)); color: oklch(.42 .13 var(--h)); border: 1px solid oklch(.8 .08 var(--h)); }
+.relpill--none { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); font-weight: 700; }
+.relpill:focus-visible, .people .who:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.sheet-head { display: flex; align-items: center; gap: 12px; }
+.sheet-head > div { display: flex; flex-direction: column; line-height: 1.5; min-width: 0; }
+.sheet-head b { font-size: 18px; overflow-wrap: anywhere; }
+.pause-box { margin-top: 10px; padding: 4px 14px; border-radius: 16px; background: rgba(255,255,255,.7); }
+.pause-box .setting { border: 0; }
+</style>
+<div class="page-head"><div>
+  <h1>{{ "Contacts"|t }}</h1>
+  <p class="lead">{{ "Tell the secretary who each person is, so it answers them in the right tone."|t }}</p>
+</div></div>
+
 {% if total %}
-<form method="get" action="{{ root }}/contacts" class="row search" role="search">
-  <label class="sr-only" for="q">{{ "Search contacts"|t }}</label>
-  <input id="q" name="q" type="search" value="{{ q }}" placeholder="{{ 'Search by name or @username'|t }}" dir="auto">
+<form method="get" action="{{ root }}/contacts" class="finder" role="search" id="finder">
+  {{ icon("search", 22) }}
+  <label class="sr-only" for="q" style="margin:0">{{ "Search contacts"|t }}</label>
+  <input id="q" name="q" type="search" value="{{ q }}" placeholder="{{ 'Search by name or @username'|t }}" dir="auto" autocomplete="off">
+  {% if filter != "all" %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
   <button>{{ "Search"|t }}</button>
-  {% if q %}<a href="{{ root }}/contacts">{{ "Show everyone"|t }}</a>{% endif %}
 </form>
+<nav class="filters" aria-label="{{ 'Filter'|t }}">
+  {% for key, label in (("all", "All"), ("unknown", "No group yet"), ("close", "Close ones"), ("work", "At work"), ("paused", "Secretary quiet")) %}
+  <a class="chip{{ ' chip--on' if filter == key }}" href="{{ root }}/contacts{{ '?filter=' ~ key if key != 'all' }}"{% if filter == key %} aria-current="true"{% endif %}>{{ label|t }} <small>{{ counts[key]|num }}</small></a>
+  {% endfor %}
+</nav>
 {% endif %}
+
 {% if rows %}
-<ul class="people">
+<ul class="list card people" id="people">
   {% for r in rows %}
-  <li>
-    <a href="{{ root }}/contacts/{{ r.chat_id }}">
-      <span class="who">
-        <b dir="auto">{{ r.name }}</b>
-        {% if r.tg_username and r.name != "@" ~ r.tg_username %}<small dir="ltr">@{{ r.tg_username }}</small>{% endif %}
-      </span>
-      <span class="tags">
-        <span class="tag{{ ' muted' if not r.relationship or r.relationship == 'unknown' }}">{{ r.rel_label|t }}</span>
-        {% if r.paused %}<span class="tag paused">{{ "Auto-reply off"|t }}</span>{% endif %}
-      </span>
-      <small class="meta"><span>{{ "Last message"|t }}: {{ r.last_seen|ts }}</span> <span>{{ r.msg_count|num }} {{ "messages"|t }}</span></small>
-    </a>
+  {% set h = hues.get(r.rel) %}
+  <li data-find="{{ (r.name ~ ' ' ~ (r.tg_username or '') ~ ' ' ~ r.chat_id)|lower }}">
+    <div class="row-item">
+      <a class="who" href="{{ root }}/contacts/{{ r.chat_id }}">
+        {{ avatar(r.name, r.rel) }}
+        <span class="grow">
+          <b dir="auto">{{ r.name }}</b>
+          <small><span>{{ r.last_seen|ago }}</span>
+            <span class="quiet" data-quiet{% if not r.paused %} hidden{% endif %}>{{ icon("volume_off", 14) }}{{ "Secretary is quiet"|t }}</span></small>
+        </span>
+      </a>
+      <a class="relpill{{ ' relpill--none' if h is none }}"{% if h is not none %} style="--h:{{ h }}"{% endif %} href="{{ root }}/contacts/{{ r.chat_id }}"
+         data-sheet-open="rel-sheet" data-chat="{{ r.chat_id }}" data-rel="{{ r.rel }}" data-paused="{{ 1 if r.paused else 0 }}" data-name="{{ r.name }}"
+         ><span>{% if h is none %}{{ "Set group"|t }}{% else %}{{ r.rel_label|t }}{% endif %}</span>{{ icon("expand_more", 16) }}</a>
+    </div>
   </li>
   {% endfor %}
 </ul>
-{% elif q %}
-<p class="empty">{{ "No one matches your search."|t }} <a href="{{ root }}/contacts">{{ "Show everyone"|t }}</a></p>
+<div class="empty" id="no-match" hidden><p>{{ "No one matches your search."|t }}</p></div>
+
+<dialog class="sheet" id="rel-sheet" aria-labelledby="sheet-name">
+  <form method="post" action="{{ root }}/contacts/0/quick" data-autosave data-saved="{{ 'Saved.'|t }}" data-failed="{{ 'Could not save. Try again.'|t }}" id="rel-form">
+    <div class="sheet-head">
+      <span class="avatar avatar--lg" id="sheet-av" aria-hidden="true"></span>
+      <div><b id="sheet-name" dir="auto"></b><span class="muted">{{ "Who is this?"|t }}</span></div>
+    </div>
+    <p class="muted" style="margin:8px 0">{{ "The secretary has its own tone for each group."|t }}</p>
+    {{ group_picker("relationship", "", relationships, rel_desc, hues) }}
+    <div class="pause-box">{{ switch("paused", False, "Secretary should not talk to this person"|t, "You answer them yourself."|t) }}</div>
+  </form>
+  <button class="btn btn-primary" type="button" data-sheet-close>{{ "Done"|t }}</button>
+</dialog>
+{% elif q or filter != "all" %}
+<div class="empty"><p><b>{{ "No one matches your search."|t }}</b></p><p><a href="{{ root }}/contacts">{{ "Show everyone"|t }}</a></p></div>
 {% else %}
 <div class="empty">
+  {{ icon("person_search", 28) }}
   <p><b>{{ "No one has messaged you yet."|t }}</b></p>
   <p>{{ "When someone writes to you on Telegram, they show up here and you can set how the secretary talks to them."|t }}</p>
 </div>
+{% endif %}
+
+{% if rows %}
+<script>
+(() => {
+  const list = document.getElementById("people"), q = document.getElementById("q");
+  const nomatch = document.getElementById("no-match"), form = document.getElementById("rel-form");
+  const $ = (s) => form.querySelector(s);
+  const HUES = {{ hues|tojson }};
+  const apply = () => {
+    const needle = q.value.toLowerCase().trim(); let n = 0;
+    for (const li of list.children) { const hit = !needle || li.dataset.find.includes(needle); li.hidden = !hit; n += hit; }
+    nomatch.hidden = n > 0;
+  };
+  q.addEventListener("input", apply); apply();
+  document.querySelector("#finder button").hidden = true;
+  document.getElementById("finder").addEventListener("submit", (e) => e.preventDefault());
+  const setHue = (el, rel) => { if (rel in HUES) el.style.setProperty("--h", HUES[rel]); el.classList.toggle("avatar--none", !(rel in HUES)); };
+  let pill = null;
+  // Capture phase: fill the sheet before app.js opens it.
+  document.addEventListener("click", (e) => {
+    const p = e.target.closest(".relpill"); if (!p) return;
+    pill = p;
+    form.action = "{{ root }}/contacts/" + p.dataset.chat + "/quick";
+    $("#sheet-name").textContent = p.dataset.name;
+    const av = $("#sheet-av"); av.textContent = [...p.dataset.name.trim()][0] || "?"; av.className = "avatar avatar--lg"; setHue(av, p.dataset.rel);
+    form.querySelectorAll('input[name="relationship"]').forEach((r) => { r.checked = r.value === p.dataset.rel; });
+    $('input[name="paused"]').checked = p.dataset.paused === "1";
+  }, true);
+  form.addEventListener("change", () => {
+    if (!pill) return;
+    const r = $('input[name="relationship"]:checked'), paused = $('input[name="paused"]').checked;
+    const rel = r ? r.value : "unknown", row = pill.closest("li"), none = !(rel in HUES);
+    pill.dataset.rel = rel; pill.dataset.paused = paused ? 1 : 0;
+    pill.classList.toggle("relpill--none", none); setHue(pill, rel);
+    pill.firstElementChild.textContent = none ? "{{ 'Set group'|t }}" : r.dataset.label;
+    row.querySelector("[data-quiet]").hidden = !paused;
+    setHue(row.querySelector(".avatar"), rel);
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}
