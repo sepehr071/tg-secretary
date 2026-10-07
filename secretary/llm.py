@@ -115,7 +115,7 @@ async def generate_reply(
     resp = await client.chat.completions.create(
         model=chosen_model,
         messages=messages,  # type: ignore[arg-type]
-        temperature=0.9,
+        temperature=0.6,
         max_tokens=600,
         frequency_penalty=0.4,
         presence_penalty=0.2,
@@ -127,7 +127,7 @@ async def generate_reply(
         resp = await client.chat.completions.create(
             model=chosen_model,
             messages=messages,  # type: ignore[arg-type]
-            temperature=0.7,
+            temperature=0.5,
             max_tokens=600,
             frequency_penalty=0.4,
             presence_penalty=0.2,

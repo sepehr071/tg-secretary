@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     tg_bot_token: str
     openrouter_api_key: str
-    openrouter_model: str = "openai/gpt-5.5"
+    openrouter_model: str = "google/gemini-3.8-flash"
     owner_user_id: int
     owner_first_name: str = "the owner"
     db_path: Path = Path("./secretary.db")

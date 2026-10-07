@@ -8,7 +8,7 @@ Personal Telegram Business autoresponder. Single-user per process; `hosting/` ru
 
 - Python 3.13, `python-telegram-bot[ext] >= 22.5`, `openai` SDK pointed at OpenRouter, `aiosqlite`, `pydantic-settings`, `httpx`.
 - One shared SQLite connection (WAL mode). Tables: `connections`, `messages`, `chat_summaries`, `contact_overrides`, `contact_memory`, `extraction_queue`, `pending_replies`, `bot_state`.
-- Reply model: `OPENROUTER_MODEL` (default `openai/gpt-5.5`). Extractor/summarizer: `EXTRACTOR_MODEL` (default `google/gemini-3.1-flash-lite`). Voice: `WHISPER_MODEL` (default `openai/whisper-large-v3`).
+- Reply model: `OPENROUTER_MODEL` (default `google/gemini-3.8-flash`). Extractor/summarizer: `EXTRACTOR_MODEL` (default `google/gemini-3.1-flash-lite`). Voice: `WHISPER_MODEL` (default `openai/whisper-large-v3`).
 - Async background worker drains `extraction_queue` to build durable per-contact memory.
 
 ## Layout
@@ -145,7 +145,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 - Persian/Arabic in Windows stdout crashes on cp1252; prefix one-off CLI runs with `PYTHONIOENCODING=utf-8`.
 - Closed vocab lists and example-response tables in `prompts/personas/<rel>.txt` ("Pet names: X, Y, Z. Never invent new ones." / "She: X → you: Y") make the reply model treat them as a lookup table → repetitive, robotic output. Reframe as illustrative range ("examples of the register, vary your own phrasing"), never as a fixed inventory or stimulus-response pair.
 - Never add fields to `memory.py:STYLE_SYSTEM` that capture phrasings the BOT outputs (e.g. `recurring_phrases`). Creates a feedback loop: fingerprint records bot drift → injected back as `## Style` system prompt → bot uses it more → 30-day lock-in until next refresh. Only capture durable owner-voice signals (length, formality, pet names, signature open/close).
-- `secretary/llm.py` defaults — `temperature=0.9` (retry 0.7) + `frequency_penalty=0.4` + `presence_penalty=0.2` — are tuned for vocabulary variety. The earlier 0.65/0.4 with no penalties is what produced the "robotic + repetitive" feel; don't quietly lower without a deliberate reason.
+- `secretary/llm.py` defaults — `temperature=0.6` (retry 0.5) + `frequency_penalty=0.4` + `presence_penalty=0.2`. 0.6 was chosen by the owner with the switch to Gemini 3.8 Flash (2026-10). The penalties carry the vocabulary variety: the earlier 0.65/0.4 with no penalties is what produced the "robotic + repetitive" feel, so don't drop them.
 - `dump_fixtures.py --no-anonymize` outputs `tests/fixtures/scenarios/raw_*.json` — gitignored by prefix, so they don't leak via git. BUT `test_prompts.py` still ships those fixtures to OpenRouter (reply model + judge model) on every run. .gitignore is not a network filter; if real-data fidelity matters less than that round-trip, stay on anonymized fixtures.
 - `prompts.load_system_prompt` uses `str.replace`, NOT `str.format`, to substitute `{owner_first_name}` — the assembled prompt contains literal `{`/`}` characters (JSON-style style_fingerprint, memory entries that quote user text). Switching to `.format()` will KeyError on any scenario with memory containing braces; the test suite exercises this implicitly.
 
