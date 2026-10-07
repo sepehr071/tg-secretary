@@ -37,6 +37,6 @@ async def proxy(path: str, request: Request):
                                 params=request.query_params, content=await request.body(),
                                 headers=headers, follow_redirects=False)
     except httpx.TransportError:
-        return render(request, "error.html", 503, title="ربات در حال راه\u200cاندازی است",
-                      body="چند ثانیه دیگر صفحه را دوباره باز کنید.")
+        return render(request, "error.html", 503, title="منشی در حال آماده شدنه",
+                      body="چند ثانیه دیگه صفحه رو دوباره باز کن.")
     return Response(r.content, r.status_code, {k: v for k in _PASS_RESP if (v := r.headers.get(k))})

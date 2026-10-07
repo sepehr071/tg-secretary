@@ -5,8 +5,8 @@
 
 Covers the hosted site (hosting/templates, hosting/static/app.js, hosting/app.py) and the owner
 dashboard (secretary/dashboard: fa.py, templates, app.js, pages.py, contacts.py, web.py).
-Prompts are left out on purpose (prompts/, secretary/prompts.py), and so are the bot's Telegram
-messages (commands.py, handlers.py, hosting/bot.py).
+The bot's Persian Telegram messages (hosting/bot.py, router.py, proxy.py, secretary/handlers.py,
+commands.py) are included too. Prompts are left out on purpose (prompts/, secretary/prompts.py).
 
 JSON shape: {"<file>": {"<current text>": "<text you want>"}}. For secretary/dashboard/fa.py the
 key is the English source string and the value its Persian translation.
@@ -24,6 +24,11 @@ FILES = [
     *sorted(str(p.relative_to(ROOT)).replace("\\", "/") for p in (ROOT / "hosting" / "templates").glob("*.html")),
     "hosting/static/app.js",
     "hosting/app.py",
+    "hosting/proxy.py",
+    "hosting/router.py",
+    "hosting/bot.py",
+    "secretary/handlers.py",
+    "secretary/commands.py",
     "secretary/dashboard/fa.py",
     *sorted(str(p.relative_to(ROOT)).replace("\\", "/")
             for p in (ROOT / "secretary" / "dashboard" / "templates").glob("*.html")),

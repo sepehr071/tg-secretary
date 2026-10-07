@@ -1,10 +1,10 @@
 {% from "_ui.html" import icon %}
 {# The three Telegram steps + copy-bot-name. Needs: bot_username; poll=true adds the auto-refresh note. #}
 <ol class="tg-steps">
-  <li><span class="n">۱</span><span>تلگرام را باز کن و برو به <b>تنظیمات</b> <bdi dir="ltr" class="muted">(Settings)</bdi></span></li>
-  <li><span class="n">۲</span><span>بخش <bdi dir="ltr"><b>Chat Automation</b></bdi> را باز کن<br><small class="muted">در بعضی گوشی&zwnj;ها: Telegram Business ← Chatbots</small></span></li>
-  <li><span class="n">۳</span><div class="grow"><span>این نام را وارد کن و اجازه&zwnj;ی «جواب دادن به پیام&zwnj;ها» را روشن کن:</span>
+  <li><span class="n">۱</span><span>تلگرام رو باز کن و برو به <b>تنظیمات</b> <bdi dir="ltr" class="muted">(Settings)</bdi></span></li>
+  <li><span class="n">۲</span><span>بخش <bdi dir="ltr"><b>Chat Automation</b></bdi> رو باز کن<br><small class="muted">در بعضی گوشی&zwnj;ها: Telegram Business ← Chatbots</small></span></li>
+  <li><span class="n">۳</span><div class="grow"><span>این نام رو وارد کن و اجازه جواب دادن به پیام&zwnj;ها رو روشن کن:</span>
     <button type="button" class="copy" data-copy="@{{ bot_username }}" aria-label="کپی نام ربات"><bdi dir="ltr">@{{ bot_username }}</bdi>{{ icon("copy", 18) }}</button></div></li>
 </ol>
 <a class="btn btn-primary block" href="https://t.me/{{ bot_username }}" target="_blank" rel="noopener">{{ icon("send", 20) }}باز کردن تلگرام</a>
-{% if poll %}<p class="wait" data-poll-connected aria-live="polite"><i class="pulse"></i>وقتی وصل شدی، این صفحه خودش عوض می&zwnj;شود.</p>{% endif %}
+{% if poll %}<p class="wait" data-poll-connected aria-live="polite"><i class="pulse"></i>وقتی وصل شد، این صفحه خودش به&zwnj;روز می&zwnj;شه.</p>{% endif %}

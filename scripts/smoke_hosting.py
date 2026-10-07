@@ -390,13 +390,13 @@ async def check_onboarding_v2() -> None:
         con.commit()
         assert (await c.get("/account/connected")).json() == {"connected": True, "can_reply": False}
         r = await c.get("/account")
-        assert "ولی اجازه&zwnj;ی جواب دادن ندارد" in r.text and "data-poll-connected" in r.text
+        assert "ولی هنوز اجازه جواب دادن نداره" in r.text and "data-poll-connected" in r.text
         con.execute("UPDATE connections SET can_reply=1")
         con.commit()
         con.close()
         assert (await c.get("/account/connected")).json() == {"connected": True, "can_reply": True}
         r = await c.get("/account")
-        assert "ولی اجازه&zwnj;ی جواب دادن ندارد" not in r.text and "data-poll-connected" not in r.text
+        assert "ولی هنوز اجازه جواب دادن نداره" not in r.text and "data-poll-connected" not in r.text
     assert not hasattr(tenants, "attach_bot")
 
 
@@ -612,7 +612,7 @@ async def check_proxy() -> None:
     proxy.TRANSPORT = httpx.MockTransport(down)
     async with web(app, cookie) as c:
         r = await c.get("/app/")
-        assert r.status_code == 503 and "ربات" in r.text           # Persian "starting" page
+        assert r.status_code == 503 and "آماده شدن" in r.text      # Persian "starting" page
     proxy.TRANSPORT = None
 
     async with web(app) as c:                                       # no session

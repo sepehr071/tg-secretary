@@ -71,15 +71,15 @@ async def on_business_connection(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     if settings.dashboard_lang == "fa":
         if not bc.is_enabled:
-            text = "\U0001f50c اتصال قطع شد؛ دیگر در چت\u200cهای شما جواب نمی\u200cدهم."
+            text = "🔌 اتصال قطع شد؛ دیگه توی چت\u200cهات جواب نمی\u200cدم."
         elif not (can_reply and can_read):
             text = (
-                "\U0001f50c وصل شدم، ولی اجازه\u200cی خواندن و پاسخ به پیام\u200cها را ندارم، پس جواب نمی\u200cدهم.\n"
-                f"تنظیمات تلگرام > Chat Automation > @{ctx.bot.username} > "
-                "اجازه\u200cی پاسخ به پیام\u200cها را روشن کنید."
+                "\U0001f50c وصل شدم، ولی هنوز اجازه خوندن و جواب دادن به پیام\u200cها رو ندارم، پس جواب نمی\u200cدم.\n"
+                f"تنظیمات تلگرام ← Telegram Business ← Chat Automation ← @{ctx.bot.username} ← "
+                "اجازه جواب دادن به پیام\u200cها رو روشن کن."
             )
         else:
-            text = "\U0001f50c وصل شدم. از این به بعد به پیام\u200cهای چت\u200cهایی که انتخاب کرده\u200cاید جواب می\u200cدهم."
+            text = "🔌 وصل شدم. از این به بعد به پیام\u200cهای چت\u200cهایی که انتخاب کرده\u200cای جواب می\u200cدم."
     elif not bc.is_enabled:
         text = "\U0001f50c Business connection disabled — I won't reply in your chats."
     else:
@@ -526,8 +526,7 @@ async def _handle_inbound_text(
             if await _credit_notice_due():
                 await _notify_owner(
                     ctx, owner_chat_id,
-                    "Credit used up: no replies until you top up.\n"
-                    "اعتبار تمام شده؛ تا شارژ دوباره پاسخی ارسال نمی\u200cشود.",
+                    "Credit used up: no replies until you top up.\nاعتبارت تموم شده؛ تا شارژ دوباره، جوابی فرستاده نمی\u200cشه.",
                 )
             return
         await _notify_owner(
@@ -894,7 +893,7 @@ async def on_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message is None:
         return
     if settings.hosted and update.effective_user and update.effective_user.id == settings.owner_user_id:
-        await update.effective_message.reply_text("منشی فعال است")
+        await update.effective_message.reply_text("منشی روشنه")
         return
     await update.effective_message.reply_text(
         "Hi. I'm a secretary bot. To use me, open Telegram → Settings → "

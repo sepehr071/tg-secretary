@@ -72,7 +72,7 @@ async def dispatch(u: dict) -> str:
     if bc and t is None and bc.get("is_enabled") and await db.mark_stranger_notified(bc["user"]["id"]):
         try:
             await tg.call(settings.platform_bot_token, "sendMessage", chat_id=bc["user"]["id"],
-                          text=f"برای فعال\u200cکردن منشی، اول در سایت ثبت\u200cنام کنید:\n{settings.public_url}")
+                          text=f"برای روشن کردن منشی، اول توی سایت ثبت\u200cنام کن:\n{settings.public_url}")
         except (tg.TelegramError, httpx.HTTPError) as e:
             log.warning("stranger DM failed: %s", _why(e))
     return "dropped"

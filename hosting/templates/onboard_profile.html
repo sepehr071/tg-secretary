@@ -12,8 +12,8 @@
   </div>
 </div>
 {% endmacro %}
-{% set about_chips = ["دانشجو هستم", "کارمندم", "کار آزاد دارم", "تهران زندگی می‌کنم", "روزها تا ۶ سر کارم", "این روزها سرم شلوغ است", "شب‌ها دیر جواب می‌دهم"] %}
-{% set never_opts = [("promise", "قول بدهد", "handshake"), ("meet", "قرار قطعی بگذارد", "event"), ("money", "درباره‌ی پول حرف بزند", "payments"), ("private", "اطلاعات شخصی من را بگوید", "lock")] %}
+{% set about_chips = ["دانشجو هستم", "کارمندم", "کار آزاد دارم", "تهران زندگی می‌کنم", "روزها تا ۶ سر کارم", "این روزها سرم شلوغه", "شب‌ها دیر جواب می‌دم"] %}
+{% set never_opts = [("promise", "قول بده", "handshake"), ("meet", "قرار قطعی بذاره", "event"), ("money", "درباره پول حرف بزنه", "payments"), ("private", "اطلاعات شخصی من رو بگه", "lock")] %}
 {% block content %}
 {{ stage(2, "معرفی تو") }}
 <form id="ob" class="ob" method="post" action="/onboard/profile" data-wizard>
@@ -22,14 +22,14 @@
   <div class="card ob-card">
     <fieldset class="step" data-step="0">
       <legend>اسمت چیه؟</legend>
-      <p class="muted">همان اسمی که دوستانت صدایت می&zwnj;کنند. منشی خودش را با این اسم معرفی نمی&zwnj;کند؛ فقط می&zwnj;داند تو کیستی.</p>
+      <p class="muted">همون اسمی که دوستات صدات می&zwnj;کنن. منشی خودش رو با این اسم معرفی نمی&zwnj;کنه؛ فقط می&zwnj;دونه تو رو چی صدا کنه.</p>
       <label class="sr" for="first_name">اسم کوچک</label>
       <input class="big-input" id="first_name" name="first_name" type="text" dir="auto" value="{{ first_name }}" autocomplete="given-name" required>
     </fieldset>
 
     <fieldset class="step" data-step="1">
-      <legend>کمی از خودت بگو</legend>
-      <p class="muted">منشی از این&zwnj;ها در جواب&zwnj;ها استفاده می&zwnj;کند. روی پیشنهادها بزن، یا خودت بنویس.</p>
+      <legend>کمی درباره خودت بگو</legend>
+      <p class="muted">منشی از این اطلاعات کمک می&zwnj;گیره تا جواب&zwnj;ها بیشتر شبیه خودت باشن. روی پیشنهادها بزن یا خودت بنویس.</p>
       <div class="chips" data-js hidden data-chips-for="about">
         {% for c in about_chips %}<button type="button" class="chip" data-chip="{{ c }}">{{ icon("add", 16) }}<span>{{ c }}</span></button>{% endfor %}
       </div>
@@ -39,30 +39,30 @@
 
     <fieldset class="step" data-step="2">
       <legend>معمولاً چطور می&zwnj;نویسی؟</legend>
-      <p class="muted">هر کدام را عوض کنی، پیش&zwnj;نمایش پایین هم عوض می&zwnj;شود.</p>
+      <p class="muted">هر چیزی رو تغییر بدی، پیش&zwnj;نمایش پایین هم همون لحظه تغییر می&zwnj;کنه.</p>
       {{ seg("tone", "لحن", [("0", "رسمی"), ("1", "معمولی"), ("2", "خودمانی")], "1") }}
-      {{ seg("len", "پیام‌هایت", [("0", "کوتاه"), ("1", "مفصل")], "0") }}
+      {{ seg("len", "طول پیام‌ها", [("0", "کوتاه"), ("1", "مفصل")], "0") }}
       {{ seg("emoji", "ایموجی", [("0", "هیچ"), ("1", "کم"), ("2", "زیاد")], "1") }}
       <div class="preview" data-preview-for="ob" data-previews='{{ previews|tojson }}'>
-        <p class="preview-title">{{ icon("sparkle", 18) }}منشی این&zwnj;طوری جواب می&zwnj;دهد</p>
+        <p class="preview-title">{{ icon("sparkle", 18) }}منشی این&zwnj;طوری جواب می&zwnj;ده</p>
         <p class="bubble-them">سلام، فردا عصر وقت داری؟</p>
         <p class="bubble-me" data-preview-text aria-live="polite">{{ previews["1-0-1"] }}</p>
       </div>
-      <label for="style">چیز دیگری هم هست؟ <span class="muted">(اختیاری)</span></label>
-      <textarea id="style" name="style" rows="2" dir="auto" placeholder="مثلاً: آخر جمله&zwnj;ها «دمت گرم» می&zwnj;گویم."></textarea>
+      <label for="style">چیز دیگه&zwnj;ای هست که منشی باید بدونه؟ <span class="muted">(اختیاری)</span></label>
+      <textarea id="style" name="style" rows="2" dir="auto" placeholder="مثلاً: آخر جمله&zwnj;ها «دمت گرم» می&zwnj;گم."></textarea>
     </fieldset>
 
     <fieldset class="step" data-step="3">
       <legend>منشی هرگز نباید…</legend>
-      <p class="muted">هر کدام را بزنی، منشی از آن دوری می&zwnj;کند و جوابش را به خودت می&zwnj;سپارد.</p>
+      <p class="muted">هر موردی رو انتخاب کنی، منشی ازش دوری می&zwnj;کنه و جوابش رو به خودت می&zwnj;سپاره.</p>
       <div class="nevers">
         {% for key, text, ic in never_opts %}
         <label class="never"><input type="checkbox" name="never" value="{{ key }}"{% if key in ("promise", "money") %} checked{% endif %}>
           <span class="n-off">{{ icon(ic, 22) }}</span><span class="n-on">{{ icon("block", 22) }}</span><span>{{ text }}</span></label>
         {% endfor %}
       </div>
-      <label class="sr" for="never_text">چیز دیگری؟</label>
-      <textarea id="never_text" name="never_text" rows="2" dir="auto" placeholder="چیز دیگری؟ مثلاً: درباره&zwnj;ی کارم با کسی حرف نزن."></textarea>
+      <label class="sr" for="never_text">چیز دیگه&zwnj;ای؟</label>
+      <textarea id="never_text" name="never_text" rows="2" dir="auto" placeholder="چیز دیگه&zwnj;ای؟ مثلاً: درباره کارم با کسی حرف نزن."></textarea>
     </fieldset>
   </div>
 
@@ -70,7 +70,7 @@
     <button type="button" class="btn btn-ghost" data-back data-js hidden>قبلی</button>
     <button type="button" class="btn btn-primary grow" data-next data-js hidden>ادامه</button>
     <button type="submit" class="btn btn-primary grow" data-submit>ذخیره و ادامه</button>
-    <button type="submit" class="skip" data-skip data-js hidden title="بقیه را بعداً پر می&zwnj;کنم">بعداً</button>
+    <button type="submit" class="skip" data-skip data-js hidden title="بقیه رو بعداً پر می&zwnj;کنم">بعداً</button>
   </div>
 </form>
 {% endblock %}

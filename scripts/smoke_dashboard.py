@@ -660,7 +660,7 @@ async def check_hosted_connection() -> None:
         assert "Missing rights: reply" in sent[-1], sent
         settings.dashboard_lang = "fa"
         await handlers.on_business_connection(NS(business_connection=bc), bot_ctx)
-        assert "Chat Automation > @sec_bot" in sent[-1] and "روشن کنید" in sent[-1], sent
+        assert "Chat Automation ← @sec_bot" in sent[-1] and "روشن کن" in sent[-1], sent
     finally:
         settings.hosted, settings.owner_user_id = old
         settings.dashboard_lang = "en"

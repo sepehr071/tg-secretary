@@ -6,15 +6,15 @@
 {% if tenant.status in ("draft", "awaiting_credit") %}
 {{ stage(3, "شارژ و اتصال") }}
 <h1>شارژ اعتبار</h1>
-<p class="lead">منشی آماده است و فقط منتظر اعتبار است. هزینه&zwnj;ی هر جواب از این اعتبار کم می&zwnj;شود.</p>
+<p class="lead">منشی آماده&zwnj;ست؛ فقط باید حسابت رو شارژ کنی. هزینه هر جواب از همین اعتبار کم می&zwnj;شه.</p>
 {% if payment_instructions %}
 <div class="card pay" dir="auto">{{ payment_instructions }}</div>
 {% endif %}
-<p>بعد از پرداخت، مدیر سرویس اعتبار را به حسابت اضافه می&zwnj;کند و منشی روشن می&zwnj;شود.</p>
+<p>بعد از پرداخت، مدیر سرویس اعتبار رو به حسابت اضافه می&zwnj;کنه و منشی روشن می&zwnj;شه.</p>
 
 <section class="card">
   <h2>وصل کردن به تلگرام</h2>
-  <p class="muted">تا منتظر اعتبار هستی، همین حالا منشی را به حسابت وصل کن. سه کار ساده در تلگرام، حدود یک دقیقه:</p>
+  <p class="muted">تا اعتبارت شارژ بشه، همین حالا منشی رو به تلگرامت وصل کن. فقط سه قدم در تلگرام؛ حدود یک دقیقه زمان می&zwnj;بره:</p>
   {% include "_connect.html" %}
 </section>
 
@@ -23,9 +23,9 @@
 <section class="card hero">
   {{ orb("ok", 64) }}
   <div>
-    <p class="kicker ok">روشن است</p>
-    <h1>منشی جواب پیام&zwnj;ها را می&zwnj;دهد</h1>
-    <p class="muted">به پیام&zwnj;های چت&zwnj;هایی که انتخاب کرده&zwnj;ای جواب می&zwnj;دهد و همه&zwnj;ی جواب&zwnj;ها را در همان چت می&zwnj;بینی.</p>
+    <p class="kicker ok">روشنه</p>
+    <h1>منشی روشنه و داره جواب می&zwnj;ده.</h1>
+    <p class="muted">به پیام&zwnj;های چت&zwnj;هایی که خودت انتخاب کرده&zwnj;ای جواب می&zwnj;ده. همه جواب&zwnj;هایی که منشی می&zwnj;فرسته، داخل همان چت تلگرام دیده می&zwnj;شن.</p>
   </div>
 </section>
 {% else %}
@@ -33,13 +33,13 @@
   <div class="hero-head">
     {{ orb("warn", 64) }}
     <div>
-      <p class="kicker warn">یک قدم مانده</p>
+      <p class="kicker warn">یک قدم مونده</p>
       {% if connection == "no_reply" %}
-      <h1>وصل است، ولی اجازه&zwnj;ی جواب دادن ندارد</h1>
-      <p class="muted">تا این اجازه را ندهی، منشی به هیچ پیامی جواب نمی&zwnj;دهد. در تنظیمات <bdi dir="ltr">Chat Automation</bdi>، اجازه&zwnj;ی «جواب دادن به پیام&zwnj;ها» را روشن کن.</p>
+      <h1>وصل شده، ولی هنوز اجازه جواب دادن نداره</h1>
+      <p class="muted">این اجازه هنوز در تلگرام روشن نیست. برای اینکه منشی درست کار کنه، در تنظیمات تلگرام ← Telegram Business ← <bdi dir="ltr">Chat Automation</bdi>، اجازه جواب دادن به پیام&zwnj;ها رو روشن کن.</p>
       {% else %}
-      <h1>منشی را به تلگرامت وصل کن</h1>
-      <p class="muted">سه کار ساده در تلگرام، حدود یک دقیقه:</p>
+      <h1>منشی رو به تلگرامت وصل کن</h1>
+      <p class="muted">فقط سه قدم در تلگرام؛ حدود یک دقیقه زمان می&zwnj;بره:</p>
       {% endif %}
     </div>
   </div>
@@ -54,15 +54,15 @@
   {% set pct = ((credit.limit_remaining or 0) / credit.limit * 100)|round|int %}
   <div class="meter{% if pct < 15 %} low{% endif %}" role="img" aria-label="اعتبار باقی&zwnj;مانده {{ pct }} درصد"><span style="width: {{ [0, [pct, 100]|min]|max }}%"></span></div>
   <p class="meter-text"><strong>{{ fa(credit.limit_remaining) }}</strong> از {{ fa(credit.limit) }} دلار</p>
-  {% if pct < 15 %}<p class="hint warn">اعتبارت رو به اتمام است. برای شارژ دوباره با مدیر سرویس تماس بگیر.</p>{% endif %}
+  {% if pct < 15 %}<p class="hint warn">اعتبارت داره تموم می&zwnj;شه. برای شارژ دوباره با مدیر سرویس تماس بگیر.</p>{% endif %}
   {% else %}
-  <p class="muted">اطلاعات اعتبار الان در دسترس نیست. کمی بعد دوباره سر بزن.</p>
+  <p class="muted">فعلاً نمی&zwnj;تونیم موجودی اعتبارت رو نمایش بدیم. کمی بعد دوباره سر بزن.</p>
   {% endif %}
 </section>
 
 <section class="card">
   <h2>تنظیمات منشی</h2>
-  <p class="muted">لحن، آدم&zwnj;ها، جواب&zwnj;های منتظر تأیید و ساعت&zwnj;های سکوت را در داشبورد تنظیم کن.</p>
+  <p class="muted">لحن منشی، مخاطب&zwnj;ها، جواب&zwnj;های منتظر تأیید تو و ساعت&zwnj;های سکوت رو توی داشبورد تنظیم کن.</p>
   <a class="btn btn-ghost" href="/app/">{{ icon("tune", 20) }}داشبورد</a>
   <a class="btn btn-ghost" href="/onboard/profile">{{ icon("person", 20) }}ویرایش معرفی من</a>
 </section>
@@ -71,9 +71,9 @@
 <section class="card hero">
   {{ orb("paused", 64) }}
   <div>
-    <p class="kicker">خاموش است</p>
-    <h1>منشی فعلاً جواب نمی&zwnj;دهد</h1>
-    <p class="muted">برای روشن کردن دوباره با مدیر سرویس تماس بگیر.</p>
+    <p class="kicker">خاموشه</p>
+    <h1>منشی فعلاً جواب پیام&zwnj;ها رو نمی&zwnj;ده.</h1>
+    <p class="muted">برای روشن کردن دوباره منشی، با مدیر سرویس تماس بگیر.</p>
   </div>
 </section>
 {% endif %}
@@ -81,11 +81,11 @@
 <details class="card danger">
   <summary>{{ icon("trash", 18) }}حذف حساب</summary>
   <form method="post" action="/account/delete">
-    <p>با حذف حساب، منشی خاموش و همه&zwnj;ی داده&zwnj;هایت پاک می&zwnj;شود. این کار برگشت ندارد.</p>
-    <p>بعد از حذف، در تلگرام از مسیر تنظیمات، <bdi dir="ltr">Chat Automation</bdi> هم ربات <bdi dir="ltr">@{{ bot_username }}</bdi> را بردار.</p>
-    <label for="confirm">برای تأیید، کلمه&zwnj;ی «حذف» را بنویس</label>
+    <p>با حذف حساب، منشی خاموش می&zwnj;شه و همه داده&zwnj;هات برای همیشه پاک می&zwnj;شن. این کار قابل برگشت نیست.</p>
+    <p>بعدش در تنظیمات تلگرام ← Telegram Business ← <bdi dir="ltr">Chat Automation</bdi>، ربات <bdi dir="ltr">@{{ bot_username }}</bdi> رو هم حذف کن.</p>
+    <label for="confirm">برای تأیید، کلمه «حذف» رو بنویس</label>
     <input id="confirm" name="confirm" type="text" dir="auto" autocomplete="off" required>
-    <button class="btn btn-danger">حذف همیشگی حساب</button>
+    <button class="btn btn-danger">حذف دائمی حساب</button>
   </form>
 </details>
 {% endblock %}

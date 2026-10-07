@@ -32,7 +32,7 @@ document.addEventListener("click", async (e) => {
     await navigator.clipboard.writeText(b.dataset.copy);
     toast("نام ربات کپی شد");
   } catch (err) {
-    toast("کپی نشد؛ نام را با دست انتخاب کن");
+    toast("کپی نشد؛ نام رو خودت انتخاب کن");
   }
 });
 

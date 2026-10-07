@@ -32,7 +32,7 @@ async def handle_update(u: dict) -> None:
         return
     msg = u.get("message") or {}
     if (msg.get("text") or "").startswith("/start"):
-        await _say(msg["chat"]["id"], f"برای ساخت منشی خودتان وارد سایت شوید:\n{settings.public_url}")
+        await _say(msg["chat"]["id"], f"برای ساختن منشی خودت، وارد سایت شو:\n{settings.public_url}")
 
 
 async def check_credit_once() -> None:
@@ -49,7 +49,7 @@ async def check_credit_once() -> None:
         limit = float(info.get("limit") or 0)
         remaining = float(info["limit_remaining"])
         if limit and remaining < 0.2 * limit and t["warned_at_limit"] != limit:
-            await _say(t["owner_tg_id"], f"اعتبار منشی شما رو به اتمام است (باقی\u200cمانده: ${remaining:.2f}). "
+            await _say(t["owner_tg_id"], f"اعتبار منشی داره تموم می\u200cشه (باقی\u200cمانده: ${remaining:.2f}). "
                                          f"برای شارژ: {settings.public_url}/account")
             await db.update_tenant(t["id"], warned_at_limit=limit)
 

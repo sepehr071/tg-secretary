@@ -121,8 +121,8 @@ def create_app() -> FastAPI:
     async def callback(request: Request, code: str = "", state: str = ""):
         verifier = await db.pop_oauth_state(state) if state else None
         if not verifier or not code:
-            return render(request, "error.html", 400, title="ورود ناموفق",
-                          body="لینک ورود منقضی شده؛ دوباره وارد شوید.")
+            return render(request, "error.html", 400, title="ورود انجام نشد",
+                          body="لینک ورود منقضی شده؛ دوباره وارد شو.")
         try:
             claims = await oidc.exchange(code, verifier)
             tg_id = int(claims["id"])
@@ -130,8 +130,8 @@ def create_app() -> FastAPI:
                                  claims.get("preferred_username"))
         except Exception:  # noqa: BLE001 - any failure here is "login failed" to the user
             log.exception("oidc exchange failed")
-            return render(request, "error.html", 400, title="ورود ناموفق",
-                          body="دوباره تلاش کنید.")
+            return render(request, "error.html", 400, title="ورود انجام نشد",
+                          body="دوباره امتحان کن.")
         return await _start_session(tg_id)
 
     @app.get(oidc.WIDGET_PATH)
@@ -142,8 +142,8 @@ def create_app() -> FastAPI:
             name = " ".join(p for p in (user.get("first_name"), user.get("last_name")) if p)
             await db.upsert_user(tg_id, name, user.get("username"))
         except ValueError:
-            return render(request, "error.html", 400, title="ورود ناموفق",
-                          body="دوباره تلاش کنید.")
+            return render(request, "error.html", 400, title="ورود انجام نشد",
+                          body="دوباره امتحان کن.")
         return await _start_session(tg_id)
 
     @app.post("/logout")
@@ -186,7 +186,7 @@ def create_app() -> FastAPI:
     @app.post("/onboard/consent")
     async def consent(request: Request, accept: str = Form("")):
         if accept != "1":
-            return go("/onboard/consent", err="برای ادامه باید شرایط را بپذیرید.")
+            return go("/onboard/consent", err="برای ادامه باید شرایط رو بپذیری.")
         await db.add_consent(uid(request), settings.consent_version)
         return RedirectResponse("/account", status_code=303)
 
@@ -240,7 +240,7 @@ def create_app() -> FastAPI:
     @app.post("/account/delete")
     async def delete(request: Request, confirm: str = Form("")):
         if confirm.strip() != "حذف":
-            return go("/account", err="برای حذف، کلمه\u200cی «حذف» را بنویسید.")
+            return go("/account", err="برای تأیید، کلمه «حذف» رو بنویس.")
         t = await db.get_tenant_by_owner(uid(request))
         if t:
             await tenants.delete(t["id"])
@@ -271,17 +271,17 @@ def create_app() -> FastAPI:
         try:
             tenant_id = int(tenant_id)
         except ValueError:
-            return go("/admin", err="حساب نامعتبر است.")
+            return go("/admin", err="این حساب معتبر نیست.")
         if amount is None or not client_ref:
-            return go("/admin", err="مبلغ درست نیست.")
+            return go("/admin", err="مبلغ واردشده درست نیست.")
         try:
             added = await tenants.top_up(tenant_id, amount, paid_text, note, uid(request), client_ref)
         except ValueError:
-            return go("/admin", err="این حساب هنوز آماده نیست (معرفی را کامل نکرده).")
+            return go("/admin", err="این حساب هنوز آماده نیست؛ معرفی کامل نشده.")
         except Exception as e:  # noqa: BLE001 - show the failure, payment row is kept for retry
             log.exception("top-up failed")
             await db.update_tenant(tenant_id, last_error=f"top-up: {e}")
-            return go("/admin", err=f"خطا: {e}")
+            return go("/admin", err=f"انجام نشد: {e}")
         return go("/admin", msg="ثبت شد." if added else "این پرداخت قبلاً ثبت شده بود.")
 
     @app.post("/admin/tenant/{tid}/restart")
@@ -297,7 +297,7 @@ def create_app() -> FastAPI:
         except Exception as e:  # noqa: BLE001 - flash it, keep the status
             log.exception("restart failed")
             await db.update_tenant(tid, last_error=f"restart: {e}")
-            return go("/admin", err=f"خطا: {e}")
+            return go("/admin", err=f"انجام نشد: {e}")
         await db.update_tenant(tid, status="running")
         return go("/admin", msg="انجام شد.")
 
@@ -308,7 +308,7 @@ def create_app() -> FastAPI:
         except Exception as e:  # noqa: BLE001 - flash it, keep the status
             log.exception("stop failed")
             await db.update_tenant(tid, last_error=f"stop: {e}")
-            return go("/admin", err=f"خطا: {e}")
+            return go("/admin", err=f"انجام نشد: {e}")
         await db.update_tenant(tid, status="stopped")
         return go("/admin", msg="متوقف شد.")
 
