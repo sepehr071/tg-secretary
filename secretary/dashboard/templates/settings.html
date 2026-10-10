@@ -33,6 +33,13 @@
   .tech-set .save { padding: 8px 0 4px; }
   .saved-note { display: flex; align-items: center; gap: 6px; margin: 4px 0 16px; color: var(--muted); }
   .saved-note .ic { color: var(--ok); }
+  .card.danger { padding: 4px 18px; }
+  .card.danger > summary { display: flex; align-items: center; gap: 10px; min-height: 56px; cursor: pointer; color: var(--danger); list-style: none; }
+  .card.danger > summary::-webkit-details-marker { display: none; }
+  .card.danger > summary .grow { flex: 1; display: flex; flex-direction: column; line-height: 1.5; }
+  .card.danger > summary small { font-size: 12.5px; color: var(--muted); }
+  .card.danger form { margin: 0 0 12px; }
+  .card.danger input { width: 100%; }
   @media (max-width: 520px) { .tech-set .setting input:not([type=number]):not([type=checkbox]) { width: 100%; } }
 </style>
 <div style="padding: 8px 4px 0;">
@@ -87,8 +94,29 @@
       {{ icon("chevron_left", 22) }}
     </a>
   </div>
+  <div class="card set-card" id="privacy">
+    <h2 class="sec">{{ "Privacy"|t }}</h2>
+    <div class="seg-row">
+      <span><b>{{ "How long to keep message text"|t }}</b><small>{{ "Older messages are folded into a short summary and deleted. The facts the secretary learned stay."|t }}</small></span>
+      {{ segmented("retention_days", retention_options, retention, "How long to keep message text"|t) }}
+    </div>
+    <a class="redo" href="{% if hosted %}/privacy{% else %}https://github.com/sepehr071/tg-secretary#privacy--telegram-rules{% endif %}"{% if not hosted %} target="_blank" rel="noopener"{% endif %}>
+      <span class="grow"><b>{{ "What is stored, for how long, and who can see it"|t }}</b><small>{{ "Plain words, no fine print."|t }}</small></span>
+      {{ icon("chevron_left", 22) }}
+    </a>
+  </div>
   <div class="actions" data-nojs-submit style="padding-top:0"><button class="primary">{{ "Save changes"|t }}</button></div>
 </form>
+
+<details class="card danger">
+  <summary>{{ icon("block", 20) }}<span class="grow"><b>{{ "Delete all stored chats"|t }}</b><small>{{ "Messages, remembered facts, summaries and waiting drafts"|t }}</small></span></summary>
+  <form method="post" action="{{ root }}/privacy/wipe">
+    <p class="muted">{{ "Contacts, tags and your settings stay. The secretary starts learning again from the next message. This can't be undone."|t }}</p>
+    <label for="wipe-confirm"><b>{{ "To confirm, type the word"|t }} «{{ "delete"|t }}»</b></label>
+    <input id="wipe-confirm" name="confirm" dir="auto" autocomplete="off" required>
+    <div class="save"><button class="bad">{{ "Delete everything"|t }}</button></div>
+  </form>
+</details>
 
 <details class="card tech-set">
   <summary>

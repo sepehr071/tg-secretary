@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     owner_first_name: str = "the owner"
     db_path: Path = Path("./secretary.db")
     history_turns: int = 12
+    # Raw message rows older than this are rolled into the chat summary and deleted
+    # (0 = keep forever). Live override: bot_state "retention_days".
+    message_retention_days: int = 7
     system_prompt_path: Path | None = None
 
     # Wait this many seconds after a friend's message before replying.

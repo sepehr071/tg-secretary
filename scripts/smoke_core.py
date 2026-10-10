@@ -59,6 +59,47 @@ async def main() -> None:
     assert await db.drop_pending_for_message(conn_id="mine", chat_id=5, contact_msg="delete me") == 1
     assert (await db.get_pending(pid))["status"] == "expired"
 
+    # Retention: old rows fold into the summary (stubbed) and go; new rows and the contact stay.
+    from secretary import memory
+    import time as _t
+    now = int(_t.time())
+    old, fresh = now - 10 * 86400, now - 3600
+    for i, ts in enumerate((old, old + 1, fresh)):
+        await db.append_message(conn_id="mine", chat_id=9, role="user", content=f"m{i}")
+        await db._db().execute("UPDATE messages SET created_at=? WHERE chat_id=9 AND content=?", (ts, f"m{i}"))
+    await db._db().commit()
+    await db.upsert_contact_profile(conn_id="mine", chat_id=9, first_name="Ava", last_name=None, username=None)
+    await db.set_state("retention_days", "7")
+    rolled: list[int] = []
+
+    async def fake_rollup(conn_id, chat_id, *, upto_id):
+        rolled.append(upto_id)
+        return False  # a failed model call must not delete anything
+
+    real_rollup = memory.rollup_summary
+    memory.rollup_summary = fake_rollup
+    try:
+        assert await memory.retention_sweep() == 0 and rolled
+        assert len(await db.load_history(conn_id="mine", chat_id=9, limit=10)) == 3
+
+        async def ok_rollup(conn_id, chat_id, *, upto_id):
+            return True
+        memory.rollup_summary = ok_rollup
+        assert await memory.retention_sweep() == 2
+        assert [m["content"] for m in await db.load_history(conn_id="mine", chat_id=9, limit=10)] == ["m2"]
+        await db.set_state("retention_days", "0")
+        assert await memory.retention_sweep() == 0  # 0 = keep forever
+    finally:
+        memory.rollup_summary = real_rollup
+    chats = await db.list_chats()
+    assert [c["chat_id"] for c in chats][:1] == [9] and chats[0]["tg_first_name"] == "Ava"
+    await db.forget_chat(conn_id="mine", chat_id=9)
+    assert await db.load_history(conn_id="mine", chat_id=9, limit=10) == []
+    assert [c["chat_id"] for c in await db.list_chats()][:1] == [9]  # contact row survives
+    # Incremental rollup only feeds rows the summary hasn't seen.
+    await db.upsert_summary(conn_id="mine", chat_id=9, summary="s", summarized_up_to_msg_id=10**9)
+    assert await memory.rollup_summary("mine", 9, upto_id=10**9)  # nothing new -> True, no model call
+
     # ZWNJ: strip only the verb prefix at a word start.
     assert _clean_output("نمی" + ZWNJ + "دونم.") == "نمیدونم"
     for word in ("رسمی" + ZWNJ + "ترین", "کمی" + ZWNJ + "اش"):

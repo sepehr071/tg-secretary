@@ -169,9 +169,23 @@ details[open] > summary { margin-bottom: .8rem; }
 .how-steps b { display: block; }
 .how-steps span { color: var(--muted); }
 
-/* consent */
+.trust-grid { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 1rem; }
+.trust-grid li { display: flex; flex-direction: column; gap: .3rem; }
+.trust-grid .ico { color: var(--accent); }
+.trust-grid span { color: var(--muted); }
+@media (min-width: 720px) { .trust-grid { grid-template-columns: repeat(3, 1fr); } }
+
+/* footer */
+.foot { display: flex; justify-content: center; gap: 1.5rem; padding: 1rem 1rem 2.5rem; font-size: .85rem; }
+.foot a { display: inline-flex; align-items: center; gap: .35rem; color: var(--muted); text-decoration: none; }
+.foot a:hover { color: var(--accent); }
+
+/* consent, privacy */
 .terms ul { padding-inline-start: 1.2rem; margin: 0 0 1rem; }
 .terms li { margin-bottom: .7rem; }
+.terms h2 { display: flex; align-items: center; gap: .5rem; }
+.terms h2 .ico { color: var(--accent); }
+.terms .btn { margin-top: .5rem; }
 
 /* onboarding wizard */
 .ob-page { max-width: 32.5rem; }

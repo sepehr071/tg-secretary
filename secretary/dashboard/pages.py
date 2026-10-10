@@ -109,7 +109,12 @@ LIVE_INT_KEYS = {
     "delay_override": ("Reply delay (s)", "auto_reply_delay_seconds"),
     "away_delay_override": ("Away-mode delay (s)", "away_reply_delay_seconds"),
     "cooldown_override": ("Owner-active cooldown (s)", "owner_active_cooldown_seconds"),
+    "retention_days": ("Days to keep raw messages", "message_retention_days"),
 }
+RETENTION_CHOICES = (1, 7, 30)
+_RETENTION_LABELS = {0: "Forever", 1: "1 day", 7: "A week", 30: "A month"}
+# Rendered as their own controls, not in the technical number list.
+_OWN_CONTROL = {"delay_override", "retention_days"}
 # .env keys the bot reads per call, so assigning them on `settings` applies at once.
 LIVE_ENV_KEYS = ("OPENROUTER_MODEL", "EXTRACTOR_MODEL", "WHISPER_MODEL", "OWNER_FIRST_NAME", "HISTORY_TURNS")
 RESTART_KEYS = {"TG_BOT_TOKEN", "OPENROUTER_API_KEY", "OWNER_USER_ID"}
@@ -154,6 +159,8 @@ async def settings_page(request: Request):
     quiet_end = _pad_time(await db.get_state("quiet_end") or "")
     delay = int(await db.get_state("delay_override") or settings.auto_reply_delay_seconds)
     choices = sorted({*DELAY_CHOICES, delay})  # a custom value (from /delay) stays visible
+    retention = int(await db.get_state("retention_days") or settings.message_retention_days)
+    retention_choices = sorted({*RETENTION_CHOICES, retention})
     return render(
         request, "settings.html",
         enabled=not await db.get_state_bool("paused"),
@@ -165,8 +172,10 @@ async def settings_page(request: Request):
         quiet_end=quiet_end or "07:00",
         delay=delay,
         delay_options=[(n, delay_label(n)) for n in choices],
+        retention=retention,
+        retention_options=[(n, t(_RETENTION_LABELS.get(n, f"{n} days"))) for n in retention_choices],
         live_ints=[(key, label, getattr(settings, attr), await db.get_state(key) or "")
-                   for key, (label, attr) in LIVE_INT_KEYS.items() if key != "delay_override"],
+                   for key, (label, attr) in LIVE_INT_KEYS.items() if key not in _OWN_CONTROL],
         s=settings,
         models=sorted(await _model_ids() or []),
         restart=request.query_params.get("restart") == "1",
@@ -237,6 +246,16 @@ async def save_live(request: Request):
             return back("/settings", err=t("Couldn't write .env; nothing applied.") + f" ({e})")
         settings.owner_first_name = name
     return back("/settings", msg="Saved. Applies to the next message.")
+
+
+@router.post("/privacy/wipe")
+async def wipe(request: Request):
+    """Delete every stored chat, memory, summary and draft. Contacts and settings stay."""
+    form = await request.form()
+    if str(form.get("confirm", "")).strip() != t("delete"):
+        return back("/settings", err="To confirm, type the word exactly as shown.")
+    await db.wipe_chats()
+    return back("/settings", msg="All stored chats, memory and drafts are deleted.")
 
 
 @router.post("/settings/config")

@@ -81,6 +81,13 @@
     <button class="btn-sm">{{ icon("sparkle", 18) }}{{ "Learn from recent messages now"|t }}</button>
     <small class="muted">{{ "It does this on its own every so often. Use it if you want an update right away."|t }}</small>
   </form>
+  <details class="danger">
+    <summary>{{ icon("block", 18) }}{{ "Delete everything stored about this chat"|t }}</summary>
+    <form method="post" action="{{ root }}/contacts/{{ chat_id }}/forget" class="row">
+      <small class="muted">{{ "Messages, remembered facts and the summary are deleted. The contact's name and tag stay. This can't be undone."|t }}</small>
+      <button class="btn-sm bad">{{ "Yes, delete"|t }}</button>
+    </form>
+  </details>
   {% if style %}
   <details class="style">
     <summary>{{ "How you usually write to them"|t }}</summary>

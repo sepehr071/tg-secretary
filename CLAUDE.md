@@ -98,7 +98,7 @@ All commands are sent to the bot's own DM (not via Business connection). Owner-o
 - Owner self-facts: edit `prompts/about_me.txt`; injected as `## About me` section into every assembled prompt.
 - Memory: `/memory <chat_id>`, `/remember`, `/forget`, `/extract <chat_id>`, `/style <chat_id>`
 - HITL: `/approval on|off`, `/innercircle on|off`, `/pending`, `/approve_<id>`, `/edit_<id>`, `/skip_<id>`
-- Live tuning (no restart): `/delay`, `/away_delay`, `/cooldown`, `/voice on|off`
+- Live tuning (no restart): `/delay`, `/away_delay`, `/cooldown`, `/retention <days|off>`, `/voice on|off`
 - Maintenance: `/preview <text>`, `/say <chat_id> <text>`, `/backup`, `/forget_chat <chat_id>`
 - Web dashboard: `/dashboard` replies with a one-time login link (1 h). Over SSH: `ssh -L 8780:127.0.0.1:8780 user@server`. It writes the same `bot_state` keys as the commands, so both surfaces always agree.
 
@@ -151,6 +151,7 @@ Snapshots at `tests/snapshots/<name>.snapshot.txt` show the full assembled perso
 
 ### Internal patterns
 - **Live env override**: read `db.get_state(key)` first, fall back to `settings.X`. See `handlers._live_int(...)` and `_voice_enabled()`. New tunables: add the live-read helper + a `/cmd` in `commands.py`.
+- **Retention**: `memory.retention_sweep` (hourly, in the extractor worker's idle branch) calls `rollup_summary(upto_id)` per chat and deletes rows `<= upto_id` only when the rollup returned True, so a failed model call never loses context. Summaries are incremental (previous summary + rows after `summarized_up_to_msg_id`); never go back to full re-summaries, they'd only see the surviving window. Contacts are listed from `contact_overrides.last_seen` (stamped in `db.append_message`), not from `messages`, so a contact outlives its rows. `MESSAGE_RETENTION_DAYS=0` / `/retention off` disables pruning.
 - **Persona stack** (assembled in `prompts.load_system_prompt`): in-code DEFAULT → `prompts/about_me.txt` (## About me) → `prompts/personas/<rel>.txt` (else `<rel>.example.txt`) → `prompts/contacts/<chat_id>.txt` → DB `persona_extra` → memory block → style fingerprint. `prompts.clear_cache()` flushes the mtime cache after edits.
 - **Profile capture**: call `_capture_profile(conn_id, chat_id, msg)` in every inbound entry point (text / voice / non-text) after the owner-skip guard, before persisting the row.
 - **Owner-only command guard**: every `on_<cmd>` starts with `if not _is_owner(update): return`.

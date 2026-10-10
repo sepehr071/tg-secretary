@@ -160,10 +160,14 @@ async def extract_worker() -> None:
     Runs off the user-facing hot path, so cost/latency only hits the extractor model.
     """
     log.info("memory extractor worker started")
+    next_sweep = 0.0
     while True:
         try:
             job = await db.claim_next()
             if job is None:
+                if time.time() >= next_sweep:  # idle housekeeping, hourly
+                    next_sweep = time.time() + 3600
+                    await retention_sweep()
                 await asyncio.sleep(15)
                 continue
             conn_id, chat_id = job["conn_id"], job["chat_id"]
@@ -186,14 +190,14 @@ async def extract_worker() -> None:
 
 
 async def maybe_refresh_style(conn_id: str, chat_id: int) -> None:
-    """Refresh style fingerprint when owner has written 30+ messages and it's stale.
-    Pulls a deep window of history (1M-context model can absorb it).
+    """Refresh style fingerprint when owner has written 15+ messages and it's stale.
+    The window is whatever retention left (default 7 days), hence the low bar.
     """
     history = await db.load_history_labeled(conn_id=conn_id, chat_id=chat_id, limit=1000)
     # Gate on REAL owner volume — bot-sent rows must not count toward (or appear
     # in) the fingerprint corpus, or bot drift becomes "owner voice" (feedback loop).
     owner_msgs = [m for m in history if m["role"] == "assistant" and not m["via_bot"]]
-    if len(owner_msgs) < 30:
+    if len(owner_msgs) < 15:
         return
     override = await db.get_override(conn_id=conn_id, chat_id=chat_id)
     if override and override.get("style_updated_at"):
@@ -236,31 +240,75 @@ async def summarize_old_history(conn_id: str, chat_id: int) -> None:
     if existing and int(time.time()) - int(existing.get("updated_at", 0)) < 6 * 3600:
         return
     older = history[:-settings.history_turns * 2]
-    if not older:
-        return
-    convo = "\n".join(_label(m) for m in older)
+    if older:
+        await rollup_summary(conn_id, chat_id, upto_id=older[-1]["id"])
+
+
+async def rollup_summary(conn_id: str, chat_id: int, *, upto_id: int) -> bool:
+    """Fold messages up to `upto_id` into the chat summary, incrementally: the previous
+    summary plus only the rows it hasn't seen. Returns True when the summary covers
+    upto_id (nothing new, or the model call succeeded) — the retention sweep deletes
+    raw rows only on True, so a failed call never loses context.
+    """
+    existing = await db.get_summary(conn_id=conn_id, chat_id=chat_id)
+    after_id = int(existing["summarized_up_to_msg_id"]) if existing else 0
+    rows = await db.load_history_range(conn_id=conn_id, chat_id=chat_id, after_id=after_id, upto_id=upto_id)
+    if not rows:
+        return True
+    convo = "\n".join(_label(m) for m in rows)
+    prev = existing["summary"] if existing else "(none yet)"
     try:
         resp = await _extractor.chat.completions.create(
             model=settings.extractor_model,
             messages=[
                 {"role": "system", "content": (
-                    "Summarize this conversation in up to ~1000 tokens. "
-                    "Preserve: names, relationships, ongoing threads, recent "
-                    "events, promises, mood arcs, recurring topics, inside "
-                    "references, what they last talked about. Write narrative "
-                    "prose, not bullet points. No translations, no markdown."
+                    "You maintain a running summary of a chat. Merge the previous summary "
+                    "with the new messages into one updated summary of up to ~1000 tokens. "
+                    "Preserve: names, relationships, ongoing threads, recent events, promises, "
+                    "mood arcs, recurring topics, inside references, what they last talked "
+                    "about. Keep older context unless the new messages supersede it. Write "
+                    "narrative prose, not bullet points. No translations, no markdown."
                 )},
-                {"role": "user", "content": convo},
+                {"role": "user", "content": f"Previous summary:\n{prev}\n\nNew messages:\n{convo}"},
             ],
             temperature=0.2,
             max_tokens=4000,
         )
         summary = (resp.choices[0].message.content or "").strip()
-        if summary:
-            await db.upsert_summary(
-                conn_id=conn_id, chat_id=chat_id,
-                summary=summary,
-                summarized_up_to_msg_id=0,
-            )
+        if not summary:
+            return False
+        await db.upsert_summary(
+            conn_id=conn_id, chat_id=chat_id,
+            summary=summary,
+            summarized_up_to_msg_id=rows[-1]["id"],
+        )
+        return True
     except Exception:
         log.exception("summarization failed for chat %s", chat_id)
+        return False
+
+
+async def retention_days() -> int:
+    """Live override from bot_state, else the env default. 0 = keep raw messages forever."""
+    raw = await db.get_state("retention_days")
+    try:
+        return int(raw) if raw else settings.message_retention_days
+    except ValueError:
+        return settings.message_retention_days
+
+
+async def retention_sweep() -> int:
+    """Roll messages older than the retention window into each chat's summary, then
+    delete them. Memory facts and contact rows stay. Returns rows deleted."""
+    days = await retention_days()
+    if days <= 0:
+        return 0
+    cutoff = int(time.time()) - days * 86400
+    deleted = 0
+    for chat in await db.chats_with_messages_before(cutoff):
+        conn_id, chat_id, upto_id = chat["conn_id"], chat["chat_id"], chat["upto_id"]
+        if await rollup_summary(conn_id, chat_id, upto_id=upto_id):
+            deleted += await db.prune_messages(conn_id=conn_id, chat_id=chat_id, upto_id=upto_id, cutoff=cutoff)
+    if deleted:
+        log.info("retention sweep: pruned %d messages older than %d days", deleted, days)
+    return deleted

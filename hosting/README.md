@@ -22,6 +22,8 @@ Sign in with the Telegram account matching `ADMIN_TG_ID`, open `/admin`. After a
 
 Each tenant lives in `tenants/<id>/` (its `.env`, `secretary.db`, prompts). The control plane state is `hosting.db`. Back both up.
 
+Message text inside a tenant DB is pruned after `MESSAGE_RETENTION_DAYS` (default 7, user-adjustable down to 1 in their dashboard); only summaries and memory facts persist. `/privacy` on the site states this, says plainly that the operator can technically read tenant files, and links the self-host option. Nothing in the control plane reads message contents — keep it that way, the page promises it.
+
 ## Deleting a user
 
 The user can delete their account from the account page (`/account`). That stops and removes the pm2 app `tgs-<id>`, deletes `tenants/<id>/`, disables the OpenRouter key and releases the tenant slot. The user should also remove the bot under Chat Automation; until then the router simply drops their updates.

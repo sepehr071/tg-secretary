@@ -201,6 +201,15 @@ async def extract(chat_id: int):
                 msg="Reading the recent messages now. New facts show up here in about a minute (nothing changes if there's little new).")
 
 
+@router.post("/contacts/{chat_id}/forget")
+async def forget(chat_id: int):
+    conn_id = await commands._active_conn_id()
+    if conn_id is None:
+        return back("/contacts", err=NO_CONNECTION)
+    await db.forget_chat(conn_id=conn_id, chat_id=chat_id)
+    return back(f"/contacts/{chat_id}", msg="Everything stored about this chat is deleted. The contact's name and tag stay.")
+
+
 PROMPT_NAMES = ("about_me", *RELATIONSHIPS)
 LANGUAGES = {"en": "English", "fa": "Persian"}
 

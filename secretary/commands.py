@@ -787,6 +787,7 @@ Tuning (live, no restart):
  /delay [seconds] — auto-reply delay (default 30)
  /away_delay [seconds] — short delay in away mode (default 5)
  /cooldown [seconds] — owner-active mute window (default 600)
+ /retention [days|off] — days raw messages are kept before they fold into the summary (default 7, 0 = forever)
 
 Tools:
  /preview <text> — dry-run draft, no send
@@ -824,28 +825,7 @@ async def on_senders(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         parsed = _parse_int(ctx.args[0])
         if parsed is not None and parsed > 0:
             n = min(parsed, 100)
-    conn = db._db()
-    cur = await conn.execute(
-        """
-        SELECT
-            m.chat_id,
-            COUNT(*) AS msg_count,
-            MAX(m.created_at) AS last_seen,
-            o.relationship,
-            o.nickname,
-            o.tg_first_name,
-            o.tg_last_name,
-            o.tg_username
-        FROM messages m
-        LEFT JOIN contact_overrides o ON o.chat_id = m.chat_id AND o.conn_id = m.conn_id
-        WHERE m.role = 'user'
-        GROUP BY m.chat_id
-        ORDER BY last_seen DESC
-        LIMIT ?
-        """,
-        (n,),
-    )
-    rows = list(await cur.fetchall())
+    rows = await db.list_chats(limit=n)
     if not rows:
         await _reply(update, "(no inbound messages yet)")
         return
@@ -1054,6 +1034,14 @@ async def on_cooldown(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def on_retention(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _tune_int(
+        update, ctx,
+        key="retention_days", default=settings.message_retention_days,
+        label="message_retention_days",
+    )
+
+
 async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update):
         return
@@ -1215,11 +1203,7 @@ async def on_forget_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if conn_id is None:
         await _reply(update, "no active connection")
         return
-    conn = db._db()
-    await conn.execute("DELETE FROM messages WHERE conn_id=? AND chat_id=?", (conn_id, chat_id))
-    await conn.execute("DELETE FROM contact_memory WHERE conn_id=? AND chat_id=?", (conn_id, chat_id))
-    await conn.execute("DELETE FROM chat_summaries WHERE conn_id=? AND chat_id=?", (conn_id, chat_id))
-    await conn.commit()
+    await db.forget_chat(conn_id=conn_id, chat_id=chat_id)
     await _reply(update, f"🧹 purged messages/memory/summary for chat {chat_id}. overrides kept.")
 
 
@@ -1314,6 +1298,7 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("delay", on_delay))
     app.add_handler(CommandHandler("away_delay", on_away_delay))
     app.add_handler(CommandHandler("cooldown", on_cooldown))
+    app.add_handler(CommandHandler("retention", on_retention))
     app.add_handler(CommandHandler("voice", on_voice))
     app.add_handler(CommandHandler("extract", on_extract))
     app.add_handler(CommandHandler("style", on_style))

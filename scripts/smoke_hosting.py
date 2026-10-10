@@ -318,6 +318,8 @@ async def check_routes() -> None:
     app = happ.create_app()
     async with web(app) as c:
         assert (await c.get("/")).status_code == 200
+        r = await c.get("/privacy")
+        assert r.status_code == 200 and "OpenRouter" in r.text  # public, names the AI hop
         r = await c.get("/account")
         assert r.status_code == 303 and r.headers["location"] == "/login"
         r = await c.get("/login")

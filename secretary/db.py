@@ -105,6 +105,15 @@ MIGRATE_EXTRACTED_AT = "ALTER TABLE messages ADD COLUMN extracted_at INTEGER;"
 MIGRATE_TG_FIRST_NAME = "ALTER TABLE contact_overrides ADD COLUMN tg_first_name TEXT;"
 MIGRATE_TG_LAST_NAME = "ALTER TABLE contact_overrides ADD COLUMN tg_last_name TEXT;"
 MIGRATE_TG_USERNAME = "ALTER TABLE contact_overrides ADD COLUMN tg_username TEXT;"
+# Contacts outlive their messages (retention prunes rows), so the override row keeps last_seen.
+MIGRATE_LAST_SEEN = "ALTER TABLE contact_overrides ADD COLUMN last_seen INTEGER;"
+BACKFILL_LAST_SEEN = """
+INSERT INTO contact_overrides (conn_id, chat_id, last_seen, updated_at)
+    SELECT conn_id, chat_id, MAX(created_at), MAX(created_at) FROM messages
+    WHERE role = 'user' GROUP BY conn_id, chat_id
+ON CONFLICT(conn_id, chat_id) DO UPDATE SET last_seen = excluded.last_seen
+    WHERE contact_overrides.last_seen IS NULL;
+"""
 
 
 _conn: aiosqlite.Connection | None = None
@@ -121,12 +130,13 @@ async def init_db() -> aiosqlite.Connection:
     await _conn.executescript(SCHEMA)
     for stmt in (
         MIGRATE_VIA_BOT, MIGRATE_DELETED_AT, MIGRATE_EDITED_AT, MIGRATE_EXTRACTED_AT,
-        MIGRATE_TG_FIRST_NAME, MIGRATE_TG_LAST_NAME, MIGRATE_TG_USERNAME,
+        MIGRATE_TG_FIRST_NAME, MIGRATE_TG_LAST_NAME, MIGRATE_TG_USERNAME, MIGRATE_LAST_SEEN,
     ):
         try:
             await _conn.execute(stmt)
         except aiosqlite.OperationalError:
             pass  # column already exists
+    await _conn.execute(BACKFILL_LAST_SEEN)
     await _conn.commit()
     return _conn
 
@@ -223,6 +233,14 @@ async def append_message(
             int(via_bot), int(time.time()),
         ),
     )
+    if role == "user":  # the contact list reads last_seen here, so it survives message pruning
+        await db.execute(
+            """
+            INSERT INTO contact_overrides (conn_id, chat_id, last_seen, updated_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(conn_id, chat_id) DO UPDATE SET last_seen = excluded.last_seen
+            """,
+            (conn_id, chat_id, int(time.time()), int(time.time())),
+        )
     await db.commit()
 
 
@@ -275,7 +293,7 @@ async def load_history_labeled(
     db = _db()
     cur = await db.execute(
         """
-        SELECT role, content, via_bot FROM messages
+        SELECT id, role, content, via_bot FROM messages
         WHERE conn_id = ? AND chat_id = ?
         ORDER BY id DESC
         LIMIT ?
@@ -284,10 +302,73 @@ async def load_history_labeled(
     )
     rows = list(await cur.fetchall())
     rows.reverse()
-    return [
-        {"role": r["role"], "content": r["content"], "via_bot": r["via_bot"]}
-        for r in rows
-    ]
+    return [dict(r) for r in rows]
+
+
+async def load_history_range(
+    *, conn_id: str, chat_id: int, after_id: int, upto_id: int
+) -> list[dict[str, Any]]:
+    """Labeled rows with after_id < id <= upto_id, oldest-first (summary rollup input)."""
+    cur = await _db().execute(
+        """
+        SELECT id, role, content, via_bot FROM messages
+        WHERE conn_id = ? AND chat_id = ? AND id > ? AND id <= ?
+        ORDER BY id ASC
+        """,
+        (conn_id, chat_id, after_id, upto_id),
+    )
+    return [dict(r) for r in await cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# retention / deletion
+# ---------------------------------------------------------------------------
+
+
+async def chats_with_messages_before(cutoff: int) -> list[dict[str, Any]]:
+    """Chats holding rows older than `cutoff`, with the newest such row id (`upto_id`)."""
+    cur = await _db().execute(
+        "SELECT conn_id, chat_id, MAX(id) AS upto_id FROM messages WHERE created_at < ? "
+        "GROUP BY conn_id, chat_id",
+        (cutoff,),
+    )
+    return [dict(r) for r in await cur.fetchall()]
+
+
+async def prune_messages(*, conn_id: str, chat_id: int, upto_id: int, cutoff: int) -> int:
+    """Delete this chat's rows with id <= upto_id that are older than cutoff.
+    Callers roll them into the summary first; drafts that old are expired anyway."""
+    db = _db()
+    cur = await db.execute(
+        "DELETE FROM messages WHERE conn_id = ? AND chat_id = ? AND id <= ? AND created_at < ?",
+        (conn_id, chat_id, upto_id, cutoff),
+    )
+    await db.execute("DELETE FROM pending_replies WHERE created_at < ?", (cutoff,))
+    await db.commit()
+    return cur.rowcount
+
+
+async def forget_chat(*, conn_id: str, chat_id: int) -> None:
+    """Drop everything the secretary stored about one chat. The contact row (name,
+    relationship, nickname, pause) stays; style fingerprint is wiped since it came from the text."""
+    db = _db()
+    for table in ("messages", "contact_memory", "chat_summaries", "pending_replies", "extraction_queue"):
+        await db.execute(f"DELETE FROM {table} WHERE conn_id = ? AND chat_id = ?", (conn_id, chat_id))
+    await db.execute(
+        "UPDATE contact_overrides SET style_fingerprint = NULL, style_updated_at = NULL "
+        "WHERE conn_id = ? AND chat_id = ?",
+        (conn_id, chat_id),
+    )
+    await db.commit()
+
+
+async def wipe_chats() -> None:
+    """Delete every stored message, memory, summary and draft across all chats (contacts stay)."""
+    db = _db()
+    for table in ("messages", "contact_memory", "chat_summaries", "pending_replies", "extraction_queue"):
+        await db.execute(f"DELETE FROM {table}")
+    await db.execute("UPDATE contact_overrides SET style_fingerprint = NULL, style_updated_at = NULL")
+    await db.commit()
 
 
 async def load_history_before(
@@ -367,6 +448,7 @@ _OVERRIDE_COLUMNS = {
     "tg_first_name",
     "tg_last_name",
     "tg_username",
+    "last_seen",
 }
 
 
@@ -930,19 +1012,22 @@ async def list_connections() -> list[dict[str, Any]]:
     return [dict(r) for r in await cur.fetchall()]
 
 
-async def list_chats() -> list[dict[str, Any]]:
-    """Every chat that has messaged the owner, newest first, with its contact row."""
+async def list_chats(limit: int | None = None) -> list[dict[str, Any]]:
+    """Every chat that has messaged the owner, newest first, with its contact row.
+    Driven by contact_overrides.last_seen, so a contact stays listed after its messages are pruned."""
     cur = await _db().execute(
         """
-        SELECT m.chat_id, MAX(m.created_at) AS last_seen, COUNT(*) AS msg_count,
+        SELECT o.chat_id, o.last_seen, COUNT(m.id) AS msg_count,
                o.relationship, o.nickname, o.paused,
                o.tg_first_name, o.tg_last_name, o.tg_username
-        FROM messages m
-        LEFT JOIN contact_overrides o ON o.chat_id = m.chat_id AND o.conn_id = m.conn_id
-        WHERE m.role = 'user'
-        GROUP BY m.chat_id
-        ORDER BY last_seen DESC
-        """
+        FROM contact_overrides o
+        LEFT JOIN messages m ON m.chat_id = o.chat_id AND m.conn_id = o.conn_id AND m.role = 'user'
+        WHERE o.last_seen IS NOT NULL
+        GROUP BY o.conn_id, o.chat_id
+        ORDER BY o.last_seen DESC
+        LIMIT ?
+        """,
+        (-1 if limit is None else limit,),
     )
     return [dict(r) for r in await cur.fetchall()]
 

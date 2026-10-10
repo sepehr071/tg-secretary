@@ -443,4 +443,30 @@ FA: dict[str, str] = {
     "Talk about money": "درباره پول حرف بزنه",
     "Share my personal info": "اطلاعات شخصی من رو بگه",
     "Couldn't save that choice.": "این انتخاب ذخیره نشد.",
+    # privacy
+    "Privacy": "حریم خصوصی",
+    "How long to keep message text": "متن پیام\u200cها چند روز نگه داشته بشه؟",
+    "Older messages are folded into a short summary and deleted. The facts the secretary learned stay.":
+        "پیام\u200cهای قدیمی\u200cتر توی یه خلاصه کوتاه جمع می\u200cشن و خودشون پاک می\u200cشن. چیزهایی که منشی یاد گرفته می\u200cمونه.",
+    "1 day": "۱ روز",
+    "A week": "یک هفته",
+    "A month": "یک ماه",
+    "Forever": "همیشه",
+    "Days to keep raw messages": "روزهای نگهداری متن پیام\u200cها",
+    "What is stored, for how long, and who can see it": "چی ذخیره می\u200cشه، چند روز، و کی می\u200cتونه ببینه",
+    "Plain words, no fine print.": "ساده و بی\u200cحاشیه.",
+    "Delete all stored chats": "پاک کردن همه چت\u200cهای ذخیره\u200cشده",
+    "Messages, remembered facts, summaries and waiting drafts": "پیام\u200cها، چیزهای یادگرفته\u200cشده، خلاصه\u200cها و جواب\u200cهای منتظر تأیید",
+    "Contacts, tags and your settings stay. The secretary starts learning again from the next message. This can't be undone.":
+        "مخاطب\u200cها، برچسب\u200cها و تنظیماتت می\u200cمونن. منشی از پیام بعدی دوباره شروع به یاد گرفتن می\u200cکنه. این کار قابل برگشت نیست.",
+    "To confirm, type the word": "برای تأیید، این کلمه رو بنویس:",
+    "delete": "حذف",
+    "Delete everything": "همه رو پاک کن",
+    "To confirm, type the word exactly as shown.": "برای تأیید، کلمه رو دقیقاً همون\u200cطور که نوشته شده بنویس.",
+    "All stored chats, memory and drafts are deleted.": "همه چت\u200cها، حافظه و پیش\u200cنویس\u200cها پاک شدن.",
+    "Delete everything stored about this chat": "پاک کردن همه چیزهای ذخیره\u200cشده از این چت",
+    "Messages, remembered facts and the summary are deleted. The contact's name and tag stay. This can't be undone.":
+        "پیام\u200cها، چیزهای یادگرفته\u200cشده و خلاصه پاک می\u200cشن. اسم و برچسب مخاطب می\u200cمونه. قابل برگشت نیست.",
+    "Yes, delete": "آره، پاک کن",
+    "Everything stored about this chat is deleted. The contact's name and tag stay.": "همه چیزهای ذخیره\u200cشده از این چت پاک شد. اسم و برچسب مخاطب مونده.",
 }

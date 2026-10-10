@@ -354,6 +354,10 @@ label.setting { cursor: pointer; }
 .add-fact input { flex: 1 1 12rem; }
 details.style { margin: 12px 0 4px; }
 details summary { cursor: pointer; }
+details.danger { margin: 12px 0 4px; }
+details.danger summary { display: flex; align-items: center; gap: 6px; color: var(--danger); }
+details.danger .row { flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; }
+button.bad { color: var(--danger); border-color: rgba(178, 58, 48, .3); }
 .style dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
 .style dt { color: var(--muted); }
 .style dd { margin: 0; }

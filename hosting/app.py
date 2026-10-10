@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve().parent
 COOKIE = "hs_session"
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
-PUBLIC_PATHS = {"/", "/login", oidc.REDIRECT_PATH, oidc.WIDGET_PATH}
+PUBLIC_PATHS = {"/", "/login", "/privacy", oidc.REDIRECT_PATH, oidc.WIDGET_PATH}
 MAX_AMOUNT = 1000.0
 # Canned preview replies for the onboarding style step, keyed "tone-len-emoji" (same texts as the dashboard).
 _REPLIES = [
@@ -100,6 +100,11 @@ def create_app() -> FastAPI:
     @app.get("/")
     async def index(request: Request):
         return render(request, "index.html")
+
+    @app.get("/privacy")
+    async def privacy(request: Request):
+        # "۷" in the template = secretary.config.Settings.message_retention_days; keep them in step.
+        return render(request, "privacy.html")
 
     async def _start_session(tg_id: int) -> RedirectResponse:
         resp = RedirectResponse("/account", status_code=303)

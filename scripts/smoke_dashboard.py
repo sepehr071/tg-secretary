@@ -403,6 +403,33 @@ async def check_contacts(app) -> None:
         assert (await c.get("/contacts/abc")).status_code == 422
 
 
+async def check_privacy(app) -> None:
+    async with await authed(app) as c:
+        r = await c.get("/settings")
+        assert 'name="retention_days"' in r.text and 'id="privacy"' in r.text and "/privacy/wipe" in r.text
+        await c.post("/settings/live", data={"retention_days": "1"})
+        assert await db.get_state("retention_days") == "1"
+
+        await db.append_message(conn_id="c1", chat_id=5, role="user", content="keep me?")
+        await db.add_memory(conn_id="c1", chat_id=5, kind="fact", content="likes tea")
+        r = await c.post("/contacts/5/forget")
+        assert r.status_code == 303 and "err" not in r.headers["location"]
+        assert await db.load_history(conn_id="c1", chat_id=5, limit=5) == []
+        assert await db.list_memory(conn_id="c1", chat_id=5) == []
+        assert (await db.get_override(conn_id="c1", chat_id=5))["nickname"] == "Sami"  # contact row stays
+        assert "/contacts/5" in (await c.get("/contacts")).text
+
+        await db.append_message(conn_id="c1", chat_id=5, role="user", content="again")
+        r = await c.post("/privacy/wipe", data={"confirm": "nope"})
+        assert "err=" in r.headers["location"]
+        assert len(await db.load_history(conn_id="c1", chat_id=5, limit=5)) == 1
+        r = await c.post("/privacy/wipe", data={"confirm": "delete"})
+        assert "err" not in r.headers["location"]
+        assert await db.load_history(conn_id="c1", chat_id=5, limit=5) == []
+        assert await db.get_state("retention_days") == "1"  # settings untouched by the wipe
+        assert "/contacts/5" in (await c.get("/contacts")).text
+
+
 async def check_prompts(app) -> None:
     personas = settings.prompts_dir / "personas"
     personas.mkdir(parents=True, exist_ok=True)
@@ -677,6 +704,7 @@ async def main() -> None:
         await check_settings(app)
         await check_home_settings(app)
         await check_contacts(app)
+        await check_privacy(app)
         await check_prompts(app)
         await check_contacts_tone(app)
         await check_drafts(app)
