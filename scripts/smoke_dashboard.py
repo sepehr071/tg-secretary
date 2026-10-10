@@ -430,6 +430,22 @@ async def check_privacy(app) -> None:
         assert "/contacts/5" in (await c.get("/contacts")).text
 
 
+async def check_claude_mode(app) -> None:
+    """ANTHROPIC_API_KEY set: no OpenRouter fields, voice "coming soon", credit from llm_usage."""
+    settings.anthropic_api_key, settings.credit_limit_usd = "k", 2.0
+    await db.add_usage(model="claude-haiku-5-5", input_tokens=1, output_tokens=1,
+                       cache_read_tokens=0, cache_write_tokens=0, cost_usd=0.5)
+    try:
+        async with await authed(app) as c:
+            r = await c.get("/settings")
+            assert "OPENROUTER_MODEL" not in r.text and "claude-haiku-5-5" in r.text
+            assert "Coming soon" in r.text and 'name="voice_override"' not in r.text
+            r = await c.get("/")
+            assert r.status_code == 200 and "1.50" in r.text and "claude-haiku-5-5" in r.text
+    finally:
+        settings.anthropic_api_key, settings.credit_limit_usd = "", 0.0
+
+
 async def check_prompts(app) -> None:
     personas = settings.prompts_dir / "personas"
     personas.mkdir(parents=True, exist_ok=True)
@@ -705,6 +721,7 @@ async def main() -> None:
         await check_home_settings(app)
         await check_contacts(app)
         await check_privacy(app)
+        await check_claude_mode(app)
         await check_prompts(app)
         await check_contacts_tone(app)
         await check_drafts(app)

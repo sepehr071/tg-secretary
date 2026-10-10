@@ -6,14 +6,14 @@ import time
 
 from openai import AsyncOpenAI
 
-from . import db
+from . import claude, db
 from .config import settings
 
 log = logging.getLogger(__name__)
 
 # Reuse OpenRouter via OpenAI SDK — separate client lets us hit a different model.
 _extractor = AsyncOpenAI(
-    api_key=settings.openrouter_api_key,
+    api_key=settings.openrouter_api_key or "unused",  # Claude provider: this client is never called
     base_url="https://openrouter.ai/api/v1",
     timeout=180,
     default_headers={
@@ -52,6 +52,20 @@ Do NOT capture "recurring phrases" — that field used to create a feedback loop
 
 No prose, no markdown fences.
 """
+
+
+async def _chat(system: str, user: str, *, max_tokens: int) -> str:
+    """One extractor-model turn on whichever provider is configured; returns stripped text."""
+    if settings.provider == "anthropic":
+        return claude.strip_fences(await claude.complete(
+            system=system, messages=[{"role": "user", "content": user}], max_tokens=max_tokens + 2048))
+    resp = await _extractor.chat.completions.create(
+        model=settings.extractor_model,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],  # type: ignore[arg-type]
+        temperature=0.2,
+        max_tokens=max_tokens,
+    )
+    return claude.strip_fences(resp.choices[0].message.content or "")
 
 
 def _label(m: dict) -> str:
@@ -109,18 +123,7 @@ async def _extract_for_chat(conn_id: str, chat_id: int) -> None:
     )
 
     try:
-        resp = await _extractor.chat.completions.create(
-            model=settings.extractor_model,
-            messages=[
-                {"role": "system", "content": EXTRACTION_SYSTEM},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_tokens=2000,
-            response_format={"type": "json_object"},
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        parsed = json.loads(raw)
+        parsed = json.loads(await _chat(EXTRACTION_SYSTEM, prompt, max_tokens=2000))
         added = 0
         for m in parsed.get("memories", [])[:5]:
             kind = m.get("kind")
@@ -209,17 +212,7 @@ async def maybe_refresh_style(conn_id: str, chat_id: int) -> None:
         if not (m["role"] == "assistant" and m["via_bot"])
     )
     try:
-        resp = await _extractor.chat.completions.create(
-            model=settings.extractor_model,
-            messages=[
-                {"role": "system", "content": STYLE_SYSTEM},
-                {"role": "user", "content": convo},
-            ],
-            temperature=0.2,
-            max_tokens=2000,
-            response_format={"type": "json_object"},
-        )
-        raw = (resp.choices[0].message.content or "").strip()
+        raw = await _chat(STYLE_SYSTEM, convo, max_tokens=2000)
         json.loads(raw)  # validate
         await db.set_style_fingerprint(conn_id=conn_id, chat_id=chat_id, json_str=raw)
     except Exception:
@@ -258,23 +251,16 @@ async def rollup_summary(conn_id: str, chat_id: int, *, upto_id: int) -> bool:
     convo = "\n".join(_label(m) for m in rows)
     prev = existing["summary"] if existing else "(none yet)"
     try:
-        resp = await _extractor.chat.completions.create(
-            model=settings.extractor_model,
-            messages=[
-                {"role": "system", "content": (
-                    "You maintain a running summary of a chat. Merge the previous summary "
-                    "with the new messages into one updated summary of up to ~1000 tokens. "
-                    "Preserve: names, relationships, ongoing threads, recent events, promises, "
-                    "mood arcs, recurring topics, inside references, what they last talked "
-                    "about. Keep older context unless the new messages supersede it. Write "
-                    "narrative prose, not bullet points. No translations, no markdown."
-                )},
-                {"role": "user", "content": f"Previous summary:\n{prev}\n\nNew messages:\n{convo}"},
-            ],
-            temperature=0.2,
+        summary = await _chat(
+            "You maintain a running summary of a chat. Merge the previous summary "
+            "with the new messages into one updated summary of up to ~1000 tokens. "
+            "Preserve: names, relationships, ongoing threads, recent events, promises, "
+            "mood arcs, recurring topics, inside references, what they last talked "
+            "about. Keep older context unless the new messages supersede it. Write "
+            "narrative prose, not bullet points. No translations, no markdown.",
+            f"Previous summary:\n{prev}\n\nNew messages:\n{convo}",
             max_tokens=4000,
         )
-        summary = (resp.choices[0].message.content or "").strip()
         if not summary:
             return False
         await db.upsert_summary(

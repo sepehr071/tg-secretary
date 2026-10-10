@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from . import db, openrouter, router, tg
+from . import db, router, tenants, tg
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -37,14 +37,10 @@ async def handle_update(u: dict) -> None:
 
 async def check_credit_once() -> None:
     for t in await db.list_tenants():
-        if t["status"] != "running" or not t["or_key_hash"]:
+        if t["status"] != "running":
             continue
-        try:
-            info = await openrouter.get_key(t["or_key_hash"])
-        except openrouter.OpenRouterError as e:
-            log.warning("credit check failed for tenant %s: %s", t["id"], e)
-            continue
-        if info.get("limit_remaining") is None:
+        info = await tenants.credit(t)
+        if not info or info.get("limit_remaining") is None:
             continue
         limit = float(info.get("limit") or 0)
         remaining = float(info["limit_remaining"])

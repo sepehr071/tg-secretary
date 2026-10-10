@@ -93,7 +93,7 @@ async def main() -> None:
             drop_pending_updates=False,
         )
 
-    log.info("Secretary bot online. Model=%s. Ctrl+C to stop.", settings.openrouter_model)
+    log.info("Secretary bot online. Model=%s. Ctrl+C to stop.", settings.reply_model)
 
     worker_task = asyncio.create_task(memory.extract_worker())
 

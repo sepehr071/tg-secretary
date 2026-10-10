@@ -11,7 +11,11 @@ class HostingSettings(BaseSettings):
     # Empty = log in with the classic Login Widget (needs /setdomain on the platform bot).
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
-    openrouter_mgmt_key: str
+    # Provider for every tenant. ANTHROPIC_API_KEY set -> Claude on one shared key, spend
+    # metered in each tenant DB; otherwise one capped OpenRouter key per tenant.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-5-5"
+    openrouter_mgmt_key: str = ""
     public_url: str  # https://example.com, no trailing slash
     admin_tg_id: int
     db_path: Path = Path("./hosting.db")
@@ -23,6 +27,10 @@ class HostingSettings(BaseSettings):
     trial_credit_usd: float = 0.0
     consent_version: int = 1
     payment_instructions: str = ""  # shown on the awaiting-credit page (card number, wallet)
+
+    @property
+    def provider(self) -> str:
+        return "anthropic" if self.anthropic_api_key else "openrouter"
 
 
 settings = HostingSettings()  # type: ignore[call-arg]

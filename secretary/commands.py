@@ -187,7 +187,7 @@ async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         f"approval_mode: {approval}\n"
         f"innercircle_gate: {innercircle}\n"
         f"quiet_hours: {qstart} → {qend}\n"
-        f"model: {settings.openrouter_model}\n"
+        f"model: {settings.reply_model}\n"
         f"pending_replies: {pending_count}\n"
         f"last 5 bot replies:\n{last_block}"
     )

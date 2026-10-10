@@ -443,6 +443,9 @@ FA: dict[str, str] = {
     "Talk about money": "درباره پول حرف بزنه",
     "Share my personal info": "اطلاعات شخصی من رو بگه",
     "Couldn't save that choice.": "این انتخاب ذخیره نشد.",
+    "Coming soon": "به\u200cزودی",
+    "Coming soon. For now a voice message is passed to you and the secretary stays quiet.":
+        "به\u200cزودی. فعلاً ویس به خودت خبر داده می\u200cشه و منشی ساکت می\u200cمونه.",
     # privacy
     "Privacy": "حریم خصوصی",
     "How long to keep message text": "متن پیام\u200cها چند روز نگه داشته بشه؟",

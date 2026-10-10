@@ -66,12 +66,21 @@ def _credit_view(credit: dict | None) -> dict | None:
             "replies": int(left / AVG_REPLY_COST_USD)}
 
 
+async def _credit() -> dict | None:
+    """Same shape as OpenRouter's /key: limit, usage, limit_remaining (None = no cap)."""
+    if settings.provider == "anthropic":
+        used = await db.usage_total()
+        limit = settings.credit_limit_usd or None
+        return {"limit": limit, "usage": used, "limit_remaining": (limit - used) if limit else None}
+    try:
+        return await asyncio.to_thread(setup.or_key_info, settings.openrouter_api_key, 5)
+    except Exception:  # noqa: BLE001 — credit is informational; never break the page
+        return None
+
+
 @router.get("/")
 async def status(request: Request):
-    try:
-        credit = await asyncio.to_thread(setup.or_key_info, settings.openrouter_api_key, 5)
-    except Exception:  # noqa: BLE001 — credit is informational; never break the page
-        credit = None
+    credit = await _credit()
     connections = await db.list_connections()
     for c in connections:
         rights = json.loads(c.get("rights_json") or "{}")
@@ -89,7 +98,7 @@ async def status(request: Request):
         request, "status.html",
         bot_username=request.app.state.bot.username,
         uptime=_duration(time.time() - request.app.state.started_at),
-        model=settings.openrouter_model,
+        model=settings.reply_model,
         paused=paused,
         approval=await db.get_state_bool("approval_mode"),
         innercircle=await db.get_state_bool("innercircle_gate", default=True),
@@ -125,6 +134,8 @@ _models_cache: tuple[float, set[str] | None] = (0.0, None)
 
 
 async def _model_ids() -> set[str] | None:
+    if settings.provider == "anthropic":
+        return None  # fixed model, no OpenRouter catalogue
     """OpenRouter model ids, cached 10 minutes (the list is large; None = unavailable)."""
     global _models_cache
     fetched_at, ids = _models_cache
@@ -167,6 +178,8 @@ async def settings_page(request: Request):
         approval=await db.get_state_bool("approval_mode"),
         innercircle=await db.get_state_bool("innercircle_gate", default=True),
         voice_on=(voice_raw or _onoff(settings.voice_transcribe)) == "on",
+        voice_available=settings.provider != "anthropic",
+        provider=settings.provider,
         quiet_on=bool(quiet_start and quiet_end),
         quiet_start=quiet_start or "23:00",
         quiet_end=quiet_end or "07:00",

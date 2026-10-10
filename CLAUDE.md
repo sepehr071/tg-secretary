@@ -9,6 +9,7 @@ Personal Telegram Business autoresponder. Single-user per process; `hosting/` ru
 - Python 3.13, `python-telegram-bot[ext] >= 22.5`, `openai` SDK pointed at OpenRouter, `aiosqlite`, `pydantic-settings`, `httpx`.
 - One shared SQLite connection (WAL mode). Tables: `connections`, `messages`, `chat_summaries`, `contact_overrides`, `contact_memory`, `extraction_queue`, `pending_replies`, `bot_state`.
 - Reply model: `OPENROUTER_MODEL` (default `google/gemini-3.8-flash`). Extractor/summarizer: `EXTRACTOR_MODEL` (default `google/gemini-3.1-flash-lite`). Voice: `WHISPER_MODEL` (default `openai/whisper-large-v3`).
+- **Claude provider** (`ANTHROPIC_API_KEY` set → `settings.provider == "anthropic"`, the hosted platform's mode): `secretary/claude.py` serves replies, extraction, style and summaries on `ANTHROPIC_MODEL` (`claude-haiku-5-5`) and records every call in `llm_usage`. Haiku 5.5 rejects `temperature`/penalties, so the Claude path sends none (effort `low`, adaptive thinking; read content blocks by type). Voice transcription is unavailable there (`_voice_enabled()` False, dashboard shows "coming soon"). Credit: platform writes `CREDIT_LIMIT_USD` into the tenant `.env`; `handlers._credit_exhausted` compares it with `db.usage_total()`; `hosting/tenants.credit()` reads the tenant DB read-only for the account/admin pages and the alert loop. `webtest/`, `scripts/test_prompts.py` stay on OpenRouter. User-facing copy never names a provider.
 - Async background worker drains `extraction_queue` to build durable per-contact memory.
 
 ## Layout

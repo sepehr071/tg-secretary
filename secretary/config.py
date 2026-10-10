@@ -7,7 +7,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     tg_bot_token: str
-    openrouter_api_key: str
+    # Provider: ANTHROPIC_API_KEY set -> Claude (replies, memory, summaries) and no voice
+    # transcription; otherwise OpenRouter with the models below.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-5-5"
+    # Hosted: the platform writes the paid balance here; 0 = no limit. The bot stops replying
+    # once recorded Claude spend reaches it.
+    credit_limit_usd: float = 0.0
+    openrouter_api_key: str = ""
     openrouter_model: str = "google/gemini-3.8-flash"
     owner_user_id: int
     owner_first_name: str = "the owner"
@@ -53,6 +60,14 @@ class Settings(BaseSettings):
     # URL prefix the proxy serves the dashboard under, e.g. "/app". Empty = served at /.
     dashboard_root_path: str = ""
     dashboard_lang: str = "en"
+
+    @property
+    def provider(self) -> str:
+        return "anthropic" if self.anthropic_api_key else "openrouter"
+
+    @property
+    def reply_model(self) -> str:
+        return self.anthropic_model if self.provider == "anthropic" else self.openrouter_model
 
 
 settings = Settings()  # type: ignore[call-arg]

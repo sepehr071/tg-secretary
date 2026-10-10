@@ -94,10 +94,14 @@ async def save_profile(tid: int, first_name: str, about: str, style: str, never:
 
 
 async def ensure_key(tid: int) -> str:
-    """Create the tenant's zero-limit OpenRouter key once; returns its hash."""
+    """Give the tenant its model credentials once. OpenRouter: a zero-limit key per tenant
+    (returns its hash). Claude: the shared platform key in the tenant .env (returns "")."""
     t = await db.get_tenant(tid)
     if t is None:
         raise ValueError(f"no tenant {tid}")
+    if settings.provider == "anthropic":
+        write_env(tid, {"ANTHROPIC_API_KEY": settings.anthropic_api_key, "ANTHROPIC_MODEL": settings.anthropic_model})
+        return ""
     if t["or_key_hash"]:
         return t["or_key_hash"]
     key, key_hash = await openrouter.create_key(pm2.name(tid), 0.0)
@@ -107,10 +111,48 @@ async def ensure_key(tid: int) -> str:
 
 
 async def sync_limit(tid: int) -> None:
-    """Set the key limit to the absolute sum of the tenant's payments; safe to repeat."""
+    """Set the credit cap to the absolute sum of the tenant's payments; safe to repeat.
+    Claude: the cap lives in the tenant .env, so a running tenant restarts to read it."""
     h = await ensure_key(tid)
-    await openrouter.set_limit(h, await db.payments_total(tid))
+    total = await db.payments_total(tid)
+    if settings.provider == "anthropic":
+        write_env(tid, {"CREDIT_LIMIT_USD": f"{total:.4f}"})
+        t = await db.get_tenant(tid)
+        if t and t["status"] == "running":
+            await asyncio.to_thread(pm2.restart, tid)
+    else:
+        await openrouter.set_limit(h, total)
     await db.update_tenant(tid, warned_at_limit=None)
+
+
+def _spend(path: Path) -> float:
+    """Recorded Claude spend in a tenant DB (read-only); 0 before the bot created its tables."""
+    if not path.exists():
+        return 0.0
+    con = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        row = con.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM llm_usage").fetchone()
+        return float(row[0]) if row else 0.0
+    except sqlite3.OperationalError:
+        return 0.0
+    finally:
+        con.close()
+
+
+async def credit(t: dict) -> dict | None:
+    """{limit, usage, limit_remaining} for a tenant row, or None when unknown.
+    Same shape as OpenRouter's key info so the pages and the alert loop don't care."""
+    if settings.provider == "anthropic":
+        limit = await db.payments_total(t["id"])
+        used = await asyncio.to_thread(_spend, tenant_dir(t["id"]) / "secretary.db")
+        return {"limit": limit, "usage": used, "limit_remaining": limit - used}
+    if not t["or_key_hash"]:
+        return None
+    try:
+        return await openrouter.get_key(t["or_key_hash"])
+    except openrouter.OpenRouterError as e:
+        log.warning("credit lookup failed for tenant %s: %s", t["id"], e)
+        return None
 
 
 async def activate(tid: int) -> None:

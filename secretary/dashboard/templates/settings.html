@@ -82,9 +82,16 @@
 
   <div class="card set-card">
     <h2 class="sec">{{ "Voice and name"|t }}</h2>
+    {% if voice_available %}
     {# Hidden "off" first: an unchecked box sends nothing, and the server reads the last value. #}
     <input type="hidden" name="voice_override" value="off">
     {{ switch("voice_override", voice_on, "Answer voice messages"|t, "Voice messages are turned into text, then answered like any other message."|t) }}
+    {% else %}
+    <div class="setting">
+      <span><b>{{ "Answer voice messages"|t }}</b><small>{{ "Coming soon. For now a voice message is passed to you and the secretary stays quiet."|t }}</small></span>
+      <span class="tag">{{ "Coming soon"|t }}</span>
+    </div>
+    {% endif %}
     <div class="setting">
       <label for="OWNER_FIRST_NAME"><b>{{ "Your first name"|t }}</b><small>{{ "The name the secretary uses for you in replies."|t }}</small></label>
       <input id="OWNER_FIRST_NAME" name="OWNER_FIRST_NAME" value="{{ s.owner_first_name }}" dir="auto" required>
@@ -140,6 +147,9 @@
   <form method="post" action="{{ root }}/settings/config">
     <datalist id="models">{% for m in models %}<option value="{{ m }}">{% endfor %}</datalist>
     <h3 class="sec">{{ "Models"|t }}</h3>
+    {% if provider == "anthropic" %}
+    <div class="setting"><span><b>{{ "Reply model"|t }}</b><small><code>{{ s.anthropic_model }}</code></small></span></div>
+    {% else %}
     <p class="muted" style="margin:0"><small>{{ "OpenRouter model ids. Saved to .env (the old one is backed up)."|t }}</small></p>
     <div class="setting"><label for="OPENROUTER_MODEL"><b>{{ "Reply model"|t }}</b></label>
       <input id="OPENROUTER_MODEL" name="OPENROUTER_MODEL" value="{{ s.openrouter_model }}" list="models" dir="ltr" required></div>
@@ -147,6 +157,7 @@
       <input id="EXTRACTOR_MODEL" name="EXTRACTOR_MODEL" value="{{ s.extractor_model }}" list="models" dir="ltr" required></div>
     <div class="setting"><label for="WHISPER_MODEL"><b>{{ "Voice model"|t }}</b></label>
       <input id="WHISPER_MODEL" name="WHISPER_MODEL" value="{{ s.whisper_model }}" dir="ltr" required></div>
+    {% endif %}
     <div class="setting"><label for="HISTORY_TURNS"><b>{{ "History turns per reply"|t }}</b></label>
       <input type="number" min="1" max="100" id="HISTORY_TURNS" name="HISTORY_TURNS" value="{{ s.history_turns }}" required></div>
     {% if not hosted %}

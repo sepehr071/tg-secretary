@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS bot_state (
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL
+);
 """
 
 # Idempotent column adds for users upgrading an existing DB.
@@ -360,6 +371,24 @@ async def forget_chat(*, conn_id: str, chat_id: int) -> None:
         (conn_id, chat_id),
     )
     await db.commit()
+
+
+async def add_usage(*, model: str, input_tokens: int, output_tokens: int,
+                    cache_read_tokens: int, cache_write_tokens: int, cost_usd: float) -> None:
+    """One row per Claude call; the hosted platform bills from the sum."""
+    db = _db()
+    await db.execute(
+        "INSERT INTO llm_usage (created_at, model, input_tokens, output_tokens, cache_read_tokens, "
+        "cache_write_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (int(time.time()), model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd),
+    )
+    await db.commit()
+
+
+async def usage_total() -> float:
+    cur = await _db().execute("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM llm_usage")
+    row = await cur.fetchone()
+    return float(row["s"]) if row else 0.0
 
 
 async def wipe_chats() -> None:

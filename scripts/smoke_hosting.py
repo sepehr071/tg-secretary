@@ -319,7 +319,7 @@ async def check_routes() -> None:
     async with web(app) as c:
         assert (await c.get("/")).status_code == 200
         r = await c.get("/privacy")
-        assert r.status_code == 200 and "OpenRouter" in r.text  # public, names the AI hop
+        assert r.status_code == 200 and "OpenRouter" not in r.text  # public; never names a provider
         r = await c.get("/account")
         assert r.status_code == 303 and r.headers["location"] == "/login"
         r = await c.get("/login")
@@ -926,6 +926,39 @@ async def check_login_widget() -> None:
         assert (await db.get_user(70))["first_name"] == "Sara"
     finally:
         settings.oidc_client_id = old
+
+
+@check
+async def check_claude_credit() -> None:
+    """ANTHROPIC_API_KEY set: shared key + CREDIT_LIMIT_USD in the tenant .env, no OpenRouter
+    key, credit = payments minus spend read from the tenant DB, restart on top-up."""
+    import sqlite3
+    pm2.RUN = fake_run
+    settings.anthropic_api_key = "sk-ant-x"
+    try:
+        tid = await db.create_tenant(777)
+        await db.update_tenant(tid, profile_done=1, status="awaiting_credit")
+        await tenants.top_up(tid, 5.0, "", "", 1, "c-1")
+        env = (tenants.tenant_dir(tid) / ".env").read_text(encoding="utf-8")
+        assert "ANTHROPIC_API_KEY='sk-ant-x'" in env and "CREDIT_LIMIT_USD='5.0000'" in env, env
+        assert "OPENROUTER" not in env
+        t = await db.get_tenant(tid)
+        assert t["status"] == "running" and not t["or_key_hash"]
+        assert await tenants.credit(t) == {"limit": 5.0, "usage": 0.0, "limit_remaining": 5.0}
+        con = sqlite3.connect(tenants.tenant_dir(tid) / "secretary.db")
+        con.execute("CREATE TABLE llm_usage (id INTEGER PRIMARY KEY, created_at INTEGER, model TEXT, "
+                    "input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, "
+                    "cache_write_tokens INTEGER, cost_usd REAL)")
+        con.execute("INSERT INTO llm_usage VALUES (1, 0, 'claude-haiku-5-5', 1, 1, 0, 0, 1.25)")
+        con.commit()
+        con.close()
+        assert abs((await tenants.credit(t))["limit_remaining"] - 3.75) < 1e-9
+        n = len(PM2_CALLS)
+        await tenants.top_up(tid, 1.0, "", "", 1, "c-2")  # running tenant restarts to read the new cap
+        assert ["restart", pm2.name(tid)] in [list(x) for x in PM2_CALLS[n:]], PM2_CALLS[n:]
+        assert "CREDIT_LIMIT_USD='6.0000'" in (tenants.tenant_dir(tid) / ".env").read_text(encoding="utf-8")
+    finally:
+        settings.anthropic_api_key = ""
 
 
 async def main() -> None:

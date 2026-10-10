@@ -8,7 +8,7 @@ The server must be outside Iran (Telegram, OpenRouter and certificate issuance a
 
 1. **Platform bot** in @BotFather: create a dedicated bot (never one another process already polls), then in its settings turn on **Secretary Mode**. Put its token and username in `hosting.env`.
 2. **Login**: in BotFather switch the bot to OpenID login, copy the client id and client secret, and add the allowed redirect URL `https://<domain>/auth/callback`. Without a client id, `/login` falls back to the classic Login Widget (run `/setdomain` for the bot).
-3. **OpenRouter**: create a management (provisioning) key at openrouter.ai/settings/provisioning-keys. It mints one capped key per tenant.
+3. **Model provider**: set `ANTHROPIC_API_KEY` to run every tenant on Claude (`ANTHROPIC_MODEL`, default `claude-haiku-5-5`). One shared key goes into each tenant `.env`; each tenant records its own spend (`llm_usage` in its DB) and the platform writes `CREDIT_LIMIT_USD` = sum of payments into the tenant `.env` (restarting a running tenant) so the bot stops at zero. Voice notes are off on this provider and the UI says "coming soon". Alternative: leave it empty and set `OPENROUTER_MGMT_KEY` (a provisioning key from openrouter.ai/settings/provisioning-keys); the platform then mints one capped OpenRouter key per tenant.
 4. **Config**: `cp hosting.env.example hosting.env` and fill it in (`PUBLIC_URL`, `ADMIN_TG_ID`, client id/secret, keys).
 5. **Install**: `uv sync`
 6. **Run**: `pm2 start hosting/ecosystem.config.cjs && pm2 save` (first time also `pm2 startup systemd -u $USER --hp $HOME`).

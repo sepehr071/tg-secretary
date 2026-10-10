@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, oidc, openrouter, pm2, tenants
+from . import db, oidc, pm2, tenants
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -167,13 +167,7 @@ def create_app() -> FastAPI:
         if step in STEP_URL:
             return RedirectResponse(STEP_URL[step], status_code=303)
         t = await db.get_tenant_by_owner(uid(request))
-        credit = None
-        if t["or_key_hash"]:
-            try:
-                credit = await openrouter.get_key(t["or_key_hash"])
-            except openrouter.OpenRouterError:
-                log.warning("credit lookup failed for tenant %s", t["id"])
-        return render(request, "account.html", tenant=t, credit=credit,
+        return render(request, "account.html", tenant=t, credit=await tenants.credit(t),
                       payment_instructions=settings.payment_instructions,
                       bot_username=settings.platform_bot_username,
                       connection=await tenants.connection_state(t["id"]))
@@ -257,12 +251,7 @@ def create_app() -> FastAPI:
         rows = []
         for t in await db.list_tenants():
             user = await db.get_user(t["owner_tg_id"]) or {}
-            info: dict = {}
-            if t["or_key_hash"]:
-                try:
-                    info = await openrouter.get_key(t["or_key_hash"])
-                except openrouter.OpenRouterError:
-                    pass
+            info: dict = await tenants.credit(t) or {}
             p = procs.get(pm2.name(t["id"]), {})
             rows.append({**t, "first_name": user.get("first_name"), "limit": info.get("limit"),
                          "usage": info.get("usage"), "pm2_status": p.get("status", "—"),

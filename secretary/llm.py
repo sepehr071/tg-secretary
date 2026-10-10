@@ -4,6 +4,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from . import claude
 from .config import settings
 from .prompts import defang
 
@@ -59,7 +60,7 @@ def _clean_output(text: str) -> str:
     return _strip_terminal_periods(text.strip())
 
 client = AsyncOpenAI(
-    api_key=settings.openrouter_api_key,
+    api_key=settings.openrouter_api_key or "unused",  # Claude provider: this client is never called
     base_url="https://openrouter.ai/api/v1",
     timeout=60,
     default_headers={
@@ -98,6 +99,8 @@ async def generate_reply(
     reasoning_effort: str | None = None,
 ) -> str:
     wrapped = f"<<<contact_message>>>\n{defang(user_message)}\n<<<end_contact_message>>>"
+    if settings.provider == "anthropic" and not model:
+        return await _claude_reply(system_prompt, history, wrapped, summary)
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     if summary:
         messages.append(
@@ -135,3 +138,18 @@ async def generate_reply(
         )
         text = _clean_output(resp.choices[0].message.content or "")
     return text
+
+
+async def _claude_reply(system_prompt: str, history: list[dict[str, Any]], wrapped: str,
+                        summary: str | None) -> str:
+    # Persona stack is stable per contact, so it is the cache breakpoint; the summary changes.
+    system: list[dict[str, Any]] = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+    if summary:
+        system.append({"type": "text", "text": f"[earlier context summary] {defang(summary)}"})
+    messages = [*history, {"role": "user", "content": wrapped}]
+    log.debug("claude request: model=%s msgs=%d", settings.anthropic_model, len(messages))
+    for _ in range(2):  # one retry on an empty reply, like the OpenRouter path
+        text = _clean_output(await claude.complete(system=system, messages=messages, max_tokens=2048))
+        if text:
+            return text
+    return ""

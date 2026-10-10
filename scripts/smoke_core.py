@@ -100,6 +100,41 @@ async def main() -> None:
     await db.upsert_summary(conn_id="mine", chat_id=9, summary="s", summarized_up_to_msg_id=10**9)
     assert await memory.rollup_summary("mine", 9, upto_id=10**9)  # nothing new -> True, no model call
 
+    # Claude provider: usage accounting, credit guard, voice off, history must open with a user turn.
+    from secretary import claude, llm
+    import types
+    cfg = claude.settings
+    cfg.anthropic_api_key = "k"
+    calls: list[dict] = []
+
+    class FakeMessages:
+        async def create(self, **kw):
+            calls.append(kw)
+            return types.SimpleNamespace(
+                usage=types.SimpleNamespace(input_tokens=1000, output_tokens=200,
+                                            cache_read_input_tokens=0, cache_creation_input_tokens=0),
+                stop_reason="end_turn",
+                content=[types.SimpleNamespace(type="thinking", thinking=""),
+                         types.SimpleNamespace(type="text", text="سلام.")])
+
+    claude._client = types.SimpleNamespace(messages=FakeMessages())
+    try:
+        out = await llm.generate_reply(
+            system_prompt="sys", summary="sum", user_message="hey",
+            history=[{"role": "assistant", "content": "old"}, {"role": "user", "content": "hi"}])
+        assert out == "سلام"
+        kw = calls[-1]
+        assert kw["model"] == "claude-haiku-5-5" and kw["messages"][0]["role"] == "user" and "temperature" not in kw
+        assert kw["system"][0]["cache_control"] == {"type": "ephemeral"} and "sum" in kw["system"][1]["text"]
+        assert abs(await db.usage_total() - (1000 * 0.10e-6 + 200 * 0.50e-6)) < 1e-12
+        assert not await handlers._credit_exhausted()
+        cfg.credit_limit_usd = 0.0001
+        assert await handlers._credit_exhausted()
+        assert not await handlers._voice_enabled()
+        assert claude.strip_fences("```json\n{\"a\": 1}\n```") == '{"a": 1}'
+    finally:
+        cfg.anthropic_api_key, cfg.credit_limit_usd, claude._client = "", 0.0, None
+
     # ZWNJ: strip only the verb prefix at a word start.
     assert _clean_output("نمی" + ZWNJ + "دونم.") == "نمیدونم"
     for word in ("رسمی" + ZWNJ + "ترین", "کمی" + ZWNJ + "اش"):

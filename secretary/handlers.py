@@ -263,8 +263,17 @@ async def _live_int(key: str, fallback: int) -> int:
         return fallback
 
 
+async def _credit_exhausted() -> bool:
+    """Hosted Claude metering: the platform sets CREDIT_LIMIT_USD; spend is summed locally."""
+    if settings.provider != "anthropic" or settings.credit_limit_usd <= 0:
+        return False
+    return await db.usage_total() >= settings.credit_limit_usd
+
+
 async def _voice_enabled() -> bool:
     """Live override for VOICE_TRANSCRIBE — owner can toggle via /voice on|off."""
+    if settings.provider == "anthropic":
+        return False  # no transcription backend on this provider yet
     override = await db.get_state("voice_override")
     if override == "on":
         return True
@@ -508,6 +517,15 @@ async def _handle_inbound_text(
 
     summary_row = await db.get_summary(conn_id=conn_id, chat_id=chat_id)
     summary_text = summary_row["summary"] if summary_row else None
+
+    if await _credit_exhausted():
+        log.info("chat %s: credit limit reached, no reply", chat_id)
+        if await _credit_notice_due():
+            await _notify_owner(
+                ctx, owner_chat_id,
+                "Credit used up: no replies until you top up.\nاعتبارت تموم شده؛ تا شارژ دوباره، جوابی فرستاده نمی\u200cشه.",
+            )
+        return
 
     typing = (
         None if needs_approval
